@@ -1,0 +1,1 @@
+export const LOADING_THRESHOLD_MS = 200;
