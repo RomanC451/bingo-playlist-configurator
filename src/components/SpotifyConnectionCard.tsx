@@ -5,8 +5,8 @@ import { Music2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { readJsonResponse } from "@/lib/read-json-response";
 
-const SPOTIFY_LOOPBACK_CALLBACK = "http://127.0.0.1:3000/api/spotify/callback";
-const SPOTIFY_LOOPBACK_APP = "http://127.0.0.1:3000/profile";
+const DEFAULT_LOOPBACK_CALLBACK = "http://127.0.0.1:3000/api/spotify/callback";
+const DEFAULT_LOOPBACK_PROFILE = "http://127.0.0.1:3000/profile";
 
 interface SpotifyAccount {
   id: string;
@@ -22,6 +22,8 @@ interface SpotifyStatus {
   account: SpotifyAccount | null;
   profileError?: string;
   redirectUri: string | null;
+  canLinkHere: boolean;
+  linkFallbackUrl: string | null;
 }
 
 function accountLabel(account: SpotifyAccount): string {
@@ -32,10 +34,10 @@ function isPremiumProduct(product: string | null): boolean {
   return !!product && product !== "free";
 }
 
-function isLoopbackOrigin(origin: string): boolean {
+function isLoopbackRedirectUri(uri: string): boolean {
   try {
-    const host = new URL(origin).hostname;
-    return host === "127.0.0.1" || host === "[::1]" || host === "::1" || host === "localhost";
+    const host = new URL(uri).hostname;
+    return host === "127.0.0.1" || host === "localhost" || host === "[::1]" || host === "::1";
   } catch {
     return false;
   }
@@ -44,11 +46,6 @@ function isLoopbackOrigin(origin: string): boolean {
 export function SpotifyConnectionCard({ className = "" }: { className?: string }) {
   const [status, setStatus] = useState<SpotifyStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [onLoopback, setOnLoopback] = useState(false);
-
-  useEffect(() => {
-    setOnLoopback(isLoopbackOrigin(window.location.origin));
-  }, []);
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -85,8 +82,10 @@ export function SpotifyConnectionCard({ className = "" }: { className?: string }
   }
 
   const account = status.account;
-  const redirectUri = status.redirectUri ?? SPOTIFY_LOOPBACK_CALLBACK;
-  const canLinkNow = onLoopback;
+  const redirectUri = status.redirectUri ?? DEFAULT_LOOPBACK_CALLBACK;
+  const canLinkNow = status.canLinkHere;
+  const linkFallbackUrl = status.linkFallbackUrl;
+  const loopbackRedirect = isLoopbackRedirectUri(redirectUri);
 
   return (
     <section className={`rounded-xl border border-border bg-card p-4 sm:p-5 ${className}`}>
@@ -105,7 +104,9 @@ export function SpotifyConnectionCard({ className = "" }: { className?: string }
       <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/30 p-3 text-sm">
         <p className="font-medium">Spotify Developer redirect URI</p>
         <p className="mt-1 text-muted-foreground">
-          Spotify only accepts loopback HTTP URLs. Register this in your{" "}
+          {loopbackRedirect
+            ? "Spotify only accepts loopback HTTP URLs for local dev. Register this in your "
+            : "Register this HTTPS callback URL in your "}
           <a
             href="https://developer.spotify.com/dashboard"
             target="_blank"
@@ -119,12 +120,12 @@ export function SpotifyConnectionCard({ className = "" }: { className?: string }
         <code className="mt-2 block break-all rounded bg-background px-2 py-1.5 text-xs">
           {redirectUri}
         </code>
-        {!canLinkNow && (
+        {!canLinkNow && linkFallbackUrl && (
           <p className="mt-3 text-amber-800 dark:text-amber-200">
             You opened the app via VPN/LAN ({typeof window !== "undefined" ? window.location.host : "…"}).
             Spotify login only works from your PC at{" "}
-            <a href={SPOTIFY_LOOPBACK_APP} className="font-medium underline underline-offset-2">
-              {SPOTIFY_LOOPBACK_APP}
+            <a href={linkFallbackUrl} className="font-medium underline underline-offset-2">
+              {linkFallbackUrl}
             </a>
             . After linking once, you can keep using the app on your phone.
           </p>
@@ -184,7 +185,7 @@ export function SpotifyConnectionCard({ className = "" }: { className?: string }
                 </Button>
               </a>
             ) : (
-              <a href={SPOTIFY_LOOPBACK_APP}>
+              <a href={linkFallbackUrl ?? DEFAULT_LOOPBACK_PROFILE}>
                 <Button type="button" variant="outline" size="sm">
                   Switch account on PC
                 </Button>
@@ -216,7 +217,7 @@ export function SpotifyConnectionCard({ className = "" }: { className?: string }
               </Button>
             </a>
           ) : (
-            <a href={SPOTIFY_LOOPBACK_APP} className="mt-3 inline-block">
+            <a href={linkFallbackUrl ?? DEFAULT_LOOPBACK_PROFILE} className="mt-3 inline-block">
               <Button type="button" className="bg-[#1DB954] text-white hover:bg-[#1ed760]">
                 Connect on PC
               </Button>

@@ -2,9 +2,27 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { getSpotifyProfile, SpotifyApiError } from "@/lib/spotify";
-import { getSpotifyClientId, getSpotifyRedirectUri, isSpotifyConfigured, resolveSpotifyRedirectUri } from "@/lib/spotify-config";
+import {
+  canStartSpotifyOAuthFromOrigin,
+  getSpotifyClientId,
+  getSpotifyLinkFallbackUrl,
+  isSpotifyConfigured,
+  requestOrigin,
+  resolveSpotifyRedirectUri,
+} from "@/lib/spotify-config";
 
-export async function GET() {
+function spotifyLinkFields(request: Request) {
+  const redirectUri = resolveSpotifyRedirectUri(request);
+  const origin = requestOrigin(request);
+  const canLinkHere = canStartSpotifyOAuthFromOrigin(origin, redirectUri);
+  return {
+    redirectUri,
+    canLinkHere,
+    linkFallbackUrl: canLinkHere ? null : getSpotifyLinkFallbackUrl(),
+  };
+}
+
+export async function GET(request: Request) {
   const { session, error } = await requireAuth();
   if (error) return error;
 
@@ -53,7 +71,7 @@ export async function GET() {
           spotifyUserId: connection.spotifyUserId,
           expiresAt: connection.expiresAt,
           clientIdHint,
-          redirectUri: resolveSpotifyRedirectUri(),
+          ...spotifyLinkFields(request),
           account,
           profileError: "not_allowlisted",
         });
@@ -67,7 +85,7 @@ export async function GET() {
     spotifyUserId: connection?.spotifyUserId ?? null,
     expiresAt: connection?.expiresAt ?? null,
     clientIdHint,
-    redirectUri: resolveSpotifyRedirectUri(),
+    ...spotifyLinkFields(request),
     account,
   });
 }

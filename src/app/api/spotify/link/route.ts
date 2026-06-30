@@ -14,13 +14,12 @@ export async function GET(request: Request) {
 
   try {
     const origin = requestOrigin(request);
-    if (!canStartSpotifyOAuthFromOrigin(origin)) {
+    const redirectUri = resolveSpotifyRedirectUri(request);
+    if (!canStartSpotifyOAuthFromOrigin(origin, redirectUri)) {
       return NextResponse.redirect(
         new URL("/profile?spotify_error=loopback_required", request.url),
       );
     }
-
-    const redirectUri = resolveSpotifyRedirectUri();
     const state = createSpotifyOAuthState(session!.user!.id, redirectUri);
     return NextResponse.redirect(buildSpotifyAuthUrl(state, redirectUri));
   } catch (err) {

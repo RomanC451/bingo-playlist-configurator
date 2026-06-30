@@ -6,6 +6,21 @@ import { z } from "zod";
 import type { NextAuthConfig } from "next-auth";
 import { prisma } from "@/lib/db";
 
+/** NextAuth crashes on `new URL("-")` if AUTH_URL is a placeholder in Vercel. */
+function sanitizeAuthUrlEnv() {
+  for (const key of ["AUTH_URL", "NEXTAUTH_URL"] as const) {
+    const value = process.env[key]?.trim();
+    if (!value) continue;
+    try {
+      new URL(value);
+    } catch {
+      delete process.env[key];
+    }
+  }
+}
+
+sanitizeAuthUrlEnv();
+
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
