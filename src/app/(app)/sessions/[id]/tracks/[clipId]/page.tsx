@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, MoreVertical, Trash2 } from "lucide-react";
 import { ClipVersionReactions } from "@/components/ClipVersionReactions";
@@ -18,6 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { WaveformEditor, ClipPlaybackButtons, type PlaybackState } from "@/components/WaveformEditor";
 import { useSessionPlayback } from "@/hooks/useSessionPlayback";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
+import { useTrackEditLock } from "@/hooks/useTrackEditLock";
+import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTrackLocks";
 import { TrackPageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import {
@@ -405,7 +408,11 @@ export default function TrackEditPage() {
   const router = useRouter();
   const sessionId = params.id as string;
   const clipId = params.clipId as string;
+  const { data: authSession } = useSession();
+  const currentUserId = authSession?.user?.id ?? null;
   useRecordSessionWork(sessionId);
+  const lockState = useTrackEditLock(sessionId, clipId);
+  const polledLocks = useSessionTrackLocks(sessionId);
 
   const [detail, setDetail] = useState<TrackDetail | null>(null);
   const [sessionTracks, setSessionTracks] = useState<SessionTrackNavItem[]>([]);
@@ -441,24 +448,40 @@ export default function TrackEditPage() {
   }, [sessionId]);
 
   useEffect(() => {
+    if (lockState.status === "loading") {
+      return;
+    }
+
+    let cancelled = false;
+    setTracksReady(false);
+
+    void fetchSessionTracks().then((tracks) => {
+      if (cancelled) return;
+      setSessionTracks(tracks);
+      setTracksReady(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSessionTracks, lockState.status, clipId]);
+
+  useEffect(() => {
+    if (lockState.status !== "ready") {
+      return;
+    }
+
     let cancelled = false;
 
     setInitialized(false);
-    setTracksReady(false);
     setDraftInitialized(false);
     setError(null);
     begin();
 
-    async function loadPage() {
+    async function loadDetail() {
       try {
-        const [detailResult, tracks] = await Promise.all([
-          fetchDetail(),
-          fetchSessionTracks(),
-        ]);
+        const detailResult = await fetchDetail();
         if (cancelled) return;
-
-        setSessionTracks(tracks);
-        setTracksReady(true);
 
         const { res, data } = detailResult;
         if (!res.ok) {
@@ -474,7 +497,6 @@ export default function TrackEditPage() {
           setError("Failed to load track");
           setDetail(null);
           setInitialized(true);
-          setTracksReady(true);
         }
       } finally {
         if (!cancelled) {
@@ -483,12 +505,17 @@ export default function TrackEditPage() {
       }
     }
 
-    void loadPage();
+    void loadDetail();
 
     return () => {
       cancelled = true;
     };
-  }, [begin, end, fetchDetail, fetchSessionTracks]);
+  }, [begin, end, fetchDetail, lockState.status, clipId]);
+
+  const mergedSessionTracks = useMemo(
+    () => mergeTrackEditingBy(sessionTracks, polledLocks),
+    [sessionTracks, polledLocks],
+  );
 
   useEffect(() => {
     setActivePreviewKey("editor");
@@ -728,7 +755,8 @@ export default function TrackEditPage() {
         <SessionTrackNav
           sessionId={sessionId}
           currentTrackId={clipId}
-          tracks={sessionTracks}
+          currentUserId={currentUserId}
+          tracks={mergedSessionTracks}
           onBeforeNavigate={requestNavigation}
         />
       );
@@ -750,8 +778,38 @@ export default function TrackEditPage() {
     );
   }
 
-  const pageReady = initialized && tracksReady;
-  const trackNav = renderTrackNav(!tracksReady);
+  const pageReady = initialized && tracksReady && lockState.status === "ready";
+  const trackNav = renderTrackNav(
+    lockState.status !== "loading" && !tracksReady,
+  );
+
+  if (lockState.status === "loading") {
+    return (
+      <TrackPageLayout nav={trackNav}>
+        {renderTrackToolbarSkeleton()}
+        <TrackPageSkeleton contentOnly />
+      </TrackPageLayout>
+    );
+  }
+
+  if (lockState.status === "blocked") {
+    return (
+      <TrackPageLayout nav={trackNav}>
+        <div className="rounded-xl border border-border bg-card p-8 text-center">
+          <p className="text-lg font-medium">{lockState.editingBy.name} is editing this track</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Wait until they finish, or pick another track from the list.
+          </p>
+          <Link
+            href={`/sessions/${sessionId}/edit`}
+            className="mt-6 inline-flex rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-secondary"
+          >
+            Back to session
+          </Link>
+        </div>
+      </TrackPageLayout>
+    );
+  }
 
   if (!pageReady) {
     if (loading) {
@@ -785,7 +843,7 @@ export default function TrackEditPage() {
     );
   }
 
-  const { track, playbackRange, versions } = detail;
+  const { track, versions } = detail;
   const hasSavedVersion = detail.currentVersion != null;
   const historyCollapsed = !showAllVersions && versions.length > 1;
 
@@ -818,20 +876,6 @@ export default function TrackEditPage() {
           <p className="text-sm text-zinc-500">Track {track.position + 1}</p>
           <h1 className="text-2xl font-semibold">{track.trackName}</h1>
           <p className="text-zinc-500">{track.artistName}</p>
-          {playbackRange.source === "saved" ? (
-            <p className="mt-2 text-sm text-zinc-500">
-              Team plays{" "}
-              <span className="text-zinc-700 dark:text-zinc-300">
-                {msToLabel(playbackRange.startMs)} – {msToLabel(playbackRange.endMs)}
-              </span>
-              {" · "}
-              last saved by {playbackRange.editorName}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-zinc-500">
-              Using the default clip — adjust the range and save to create the first version
-            </p>
-          )}
 
           {rateLimitMessage && (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">

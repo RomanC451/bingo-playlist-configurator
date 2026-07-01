@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { DeleteSessionDialog } from "@/components/DeleteSessionDialog";
@@ -14,6 +15,7 @@ import {
   SessionCard,
   type SessionCardData,
 } from "@/components/SessionCard";
+import { SessionTeamProgressDialog } from "@/components/SessionTeamProgressDialog";
 import { SessionsPageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { errorMessageFromBody } from "@/lib/api-errors";
@@ -22,6 +24,8 @@ import { readJsonResponse } from "@/lib/read-json-response";
 function SessionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: authSession } = useSession();
+  const currentUserId = authSession?.user?.id ?? null;
   const [sessions, setSessions] = useState<SessionCardData[]>([]);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<MemberUser[]>([]);
@@ -40,6 +44,7 @@ function SessionsContent() {
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [teamProgressSessionId, setTeamProgressSessionId] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     begin();
@@ -80,6 +85,11 @@ function SessionsContent() {
               updatedAt: string;
               ownerName: string;
               _count: { trackClips: number };
+              userReviewProgress: {
+                reviewed: number;
+                remaining: number;
+                total: number;
+              };
             }[]
           >(sessionsRes)
         : [];
@@ -92,6 +102,7 @@ function SessionsContent() {
         clipRange: `${session.defaultClipDurationMs / 1000}s`,
         playlistImageUrl: session.playlistImageUrl,
         accent: accentForSession(session.id),
+        userReviewProgress: session.userReviewProgress,
       }));
       let nextSpotifyConfigured = true;
       let nextTeamSpotifyLinked = false;
@@ -387,6 +398,8 @@ function SessionsContent() {
                 showMemberPhotos={showMemberPhotos}
                 onPlay={(id) => router.push(`/sessions/${id}/play`)}
                 onEdit={(id) => router.push(`/sessions/${id}/edit`)}
+                onReview={(id) => router.push(`/sessions/${id}/review`)}
+                onTeamProgress={(id) => setTeamProgressSessionId(id)}
                 onDelete={() => {
                   setDeleteError(null);
                   setPendingDelete({ id: session.id, name: session.name });
@@ -404,6 +417,13 @@ function SessionsContent() {
         error={deleteError}
         onCancel={closeDeleteDialog}
         onConfirm={() => void confirmDeleteSession()}
+      />
+
+      <SessionTeamProgressDialog
+        sessionId={teamProgressSessionId}
+        open={teamProgressSessionId !== null}
+        currentUserId={currentUserId}
+        onClose={() => setTeamProgressSessionId(null)}
       />
     </div>
   );

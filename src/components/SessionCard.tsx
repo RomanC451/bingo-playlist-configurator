@@ -10,9 +10,12 @@ import {
   Scissors,
   Trash2,
   User,
+  ClipboardCheck,
+  Users,
 } from "lucide-react";
 import { MemberAvatarStack, type MemberUser } from "@/components/MemberAvatarStack";
 import { Button } from "@/components/ui/button";
+import { getReviewActionLabel, type UserReviewProgress } from "@/lib/track-review";
 
 const ACCENT_COLORS = ["#059669", "#0d9488", "#0891b2", "#6366f1", "#9333ea", "#db2777"];
 
@@ -33,6 +36,7 @@ export type SessionCardData = {
   clipRange: string;
   playlistImageUrl: string | null;
   accent: string;
+  userReviewProgress: UserReviewProgress;
 };
 
 export function SessionCard({
@@ -41,6 +45,8 @@ export function SessionCard({
   showMemberPhotos,
   onPlay,
   onEdit,
+  onReview,
+  onTeamProgress,
   onDelete,
 }: {
   session: SessionCardData;
@@ -48,11 +54,14 @@ export function SessionCard({
   showMemberPhotos?: boolean;
   onPlay?: (id: string) => void;
   onEdit?: (id: string) => void;
+  onReview?: (id: string) => void;
+  onTeamProgress?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = session.playlistImageUrl && !imageFailed;
+  const reviewActionLabel = getReviewActionLabel(session.userReviewProgress.reviewed);
 
   return (
     <div className="group relative flex flex-col gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40 sm:flex-row sm:items-center sm:gap-5 sm:p-5">
@@ -141,7 +150,33 @@ export function SessionCard({
             <MoreVertical className="size-4" />
           </Button>
           {menuOpen && (
-            <div className="absolute right-0 top-full z-10 mt-1 w-40 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg">
+            <div className="absolute right-0 top-full z-10 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg">
+              {onReview && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onReview(session.id);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-accent"
+                >
+                  <ClipboardCheck className="size-4" />
+                  {reviewActionLabel}
+                </button>
+              )}
+              {onTeamProgress && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onTeamProgress(session.id);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-accent"
+                >
+                  <Users className="size-4" />
+                  Team reviews
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

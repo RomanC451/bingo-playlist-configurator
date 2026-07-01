@@ -5,6 +5,7 @@ import {
 } from "@/lib/clip-selection";
 import { mapVersionReactions, reactionCountsFromEntries } from "@/lib/clip-reactions";
 import { mapAttentionFlaggedBy, trackAttentionUserInclude } from "@/lib/track-attention";
+import { loadActiveTrackEditLocksForSession } from "@/lib/track-edit-lock-db";
 import { prisma } from "@/lib/db";
 
 const versionReactionInclude = {
@@ -112,14 +113,17 @@ function resolveClipPlayback(
 }
 
 export async function loadSessionTrackSummaries(sessionId: string) {
-  const clips = await prisma.trackClip.findMany({
-    where: { sessionId },
-    orderBy: { position: "asc" },
-    include: {
-      ...proposalInclude,
-      ...trackAttentionUserInclude,
-    },
-  });
+  const [clips, locksByClipId] = await Promise.all([
+    prisma.trackClip.findMany({
+      where: { sessionId },
+      orderBy: { position: "asc" },
+      include: {
+        ...proposalInclude,
+        ...trackAttentionUserInclude,
+      },
+    }),
+    loadActiveTrackEditLocksForSession(sessionId),
+  ]);
 
   return clips.map((clip) => {
     const versions = clip.proposal?.versions ?? [];
@@ -147,6 +151,7 @@ export async function loadSessionTrackSummaries(sessionId: string) {
       needsAttention: clip.needsAttention,
       attentionFlaggedBy: mapAttentionFlaggedBy(clip.needsAttentionBy),
       attentionComment: clip.needsAttentionComment,
+      editingBy: locksByClipId.get(clip.id) ?? null,
     };
   });
 }

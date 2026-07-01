@@ -3,6 +3,13 @@ import { requireAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { requireSessionAccess, teamAccessResponse } from "@/lib/team-auth";
 import { touchSessionUpdated } from "@/lib/session-activity";
+import {
+  assertTrackEditableByUser,
+  TrackEditLockedError,
+  TrackEditNotHeldError,
+} from "@/lib/track-edit-lock-db";
+import { clearTrackClipReviews } from "@/lib/track-review-db";
+import { resolveTrackPlaybackRange } from "@/lib/track-review";
 import { loadTrackDetail } from "@/lib/track-summaries";
 
 type RouteContext = {
@@ -24,16 +31,40 @@ export async function DELETE(_request: Request, context: RouteContext) {
         id: versionId,
         proposal: { trackClipId: clipId, trackClip: { sessionId: id } },
       },
-      include: { proposal: true },
+      include: {
+        proposal: {
+          include: {
+            trackClip: {
+              include: {
+                proposal: {
+                  include: {
+                    versions: { orderBy: { createdAt: "desc" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!version) {
       return NextResponse.json({ error: "Version not found" }, { status: 404 });
     }
 
+    const clip = version.proposal.trackClip;
+    const removingCurrentClip =
+      resolveTrackPlaybackRange(clip).versionId === versionId;
+
+    await assertTrackEditableByUser(clipId, userId);
+
     const proposalId = version.proposalId;
 
     await prisma.clipProposalVersion.delete({ where: { id: versionId } });
+
+    if (removingCurrentClip) {
+      await clearTrackClipReviews(clipId);
+    }
 
     const remaining = await prisma.clipProposalVersion.count({
       where: { proposalId },
@@ -53,6 +84,15 @@ export async function DELETE(_request: Request, context: RouteContext) {
     const detail = await loadTrackDetail(id, clipId, userId);
     return NextResponse.json(detail);
   } catch (err) {
+    if (err instanceof TrackEditLockedError) {
+      return NextResponse.json(
+        { error: err.message, editingBy: err.editingBy },
+        { status: 409 },
+      );
+    }
+    if (err instanceof TrackEditNotHeldError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     const response = teamAccessResponse(err);
     if (response) return response;
     throw err;

@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/api-auth";
 import { getActiveTeamId, restoreActiveTeamCookie } from "@/lib/active-team";
 import { prisma } from "@/lib/db";
 import { getHomeSessionHighlights } from "@/lib/session-activity";
+import { loadOngoingUserReviews } from "@/lib/home-reviews";
 import { loadTracksNeedingAttention } from "@/lib/track-attention";
 import { apiErrorResponse, teamAccessResponse } from "@/lib/team-auth";
 
@@ -22,13 +23,15 @@ export async function GET() {
       : null;
 
     const highlights = await getHomeSessionHighlights(userId, activeTeamId);
-    const tracksNeedingAttention = activeTeamId
-      ? await loadTracksNeedingAttention(activeTeamId)
-      : [];
+    const [tracksNeedingAttention, ongoingReviews] = await Promise.all([
+      activeTeamId ? loadTracksNeedingAttention(activeTeamId) : Promise.resolve([]),
+      activeTeamId ? loadOngoingUserReviews(activeTeamId, userId) : Promise.resolve([]),
+    ]);
 
     const response = NextResponse.json({
       activeTeam,
       tracksNeedingAttention,
+      ongoingReviews,
       ...highlights,
     });
     await restoreActiveTeamCookie(userId, response);

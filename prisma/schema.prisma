@@ -30,7 +30,8 @@ model User {
   clipProposalVersionReactions ClipProposalVersionReaction[]
   sessionActivity       SessionUserActivity[]
   tracksFlaggedForAttention TrackClip[] @relation("TrackNeedsAttentionBy")
-  tracksMarkedPerfect     TrackClip[] @relation("TrackMarkedPerfectBy")
+  trackClipReviews      TrackClipReview[]
+  trackClipEditLocks    TrackClipEditLock[]
   activeTeamId          String?
   activeTeam            Team?   @relation("UserActiveTeam", fields: [activeTeamId], references: [id], onDelete: SetNull)
 }
@@ -154,13 +155,12 @@ model TrackClip {
   needsAttention         Boolean @default(false)
   needsAttentionByUserId String?
   needsAttentionComment  String?
-  markedPerfect          Boolean @default(false)
-  markedPerfectByUserId  String?
 
   session            BingoSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   needsAttentionBy   User?         @relation("TrackNeedsAttentionBy", fields: [needsAttentionByUserId], references: [id], onDelete: SetNull)
-  markedPerfectBy    User?         @relation("TrackMarkedPerfectBy", fields: [markedPerfectByUserId], references: [id], onDelete: SetNull)
   proposal           ClipProposal?
+  reviews            TrackClipReview[]
+  editLock           TrackClipEditLock?
 
   @@unique([sessionId, spotifyTrackId])
   @@index([sessionId, position])
@@ -196,9 +196,44 @@ model ClipProposalVersion {
   proposal  ClipProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   createdBy User         @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
   reactions ClipProposalVersionReaction[]
+  reviews   TrackClipReview[]
 
   @@index([proposalId, createdAt])
   @@index([createdByUserId])
+}
+
+enum TrackClipReviewVerdict {
+  OK
+  NOT_OK
+}
+
+model TrackClipReview {
+  trackClipId String
+  userId      String
+  versionId   String?
+  verdict     TrackClipReviewVerdict
+  comment     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  trackClip TrackClip              @relation(fields: [trackClipId], references: [id], onDelete: Cascade)
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version   ClipProposalVersion?   @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  @@id([trackClipId, userId])
+  @@index([userId])
+}
+
+model TrackClipEditLock {
+  trackClipId String   @id
+  userId      String
+  expiresAt   DateTime
+  updatedAt   DateTime @updatedAt
+
+  trackClip TrackClip @relation(fields: [trackClipId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }
 
 enum ClipReactionType {

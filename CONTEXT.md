@@ -34,6 +34,12 @@ Computed at playback time: the proposal with the most votes; ties break to the e
 ### DefaultClip
 Fallback range on a Track when no votes exist: `startMs` (typically `0`) through `endMs` (typically `defaultClipDurationMs` capped by track duration). Set on playlist import.
 
+### TrackClipReview
+A per-user OK / Not OK verdict on a track's current playback clip. One row per `(trackClipId, userId)`. Bound to the `versionId` reviewed (`null` = **DefaultClip**). A review is **stale** when playback resolves to a different `versionId` — the track re-enters that user's review queue.
+
+- **OK** — clip is acceptable; clears `needsAttention` only if this user flagged it
+- **Not OK** — clip needs work; sets `needsAttention` with optional comment
+
 ## Access rules
 
 - Session access requires membership on the session's Team.

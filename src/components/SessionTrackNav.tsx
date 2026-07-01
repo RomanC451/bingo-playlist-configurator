@@ -7,6 +7,9 @@ import { TrackClipDot, TrackClipStatusText, TrackNeedsAttentionText, trackListLi
 import { TrackReactionCounts } from "@/components/TrackReactionCounts";
 import { hasCustomClip } from "@/lib/clip-selection";
 import type { AttentionFlaggedBy } from "@/lib/track-attention";
+import type { TrackEditingBy } from "@/lib/track-edit-lock";
+import { isTrackLockedByOther } from "@/lib/track-edit-lock";
+import { TrackEditingIndicator } from "@/components/TrackEditingIndicator";
 import { cn } from "@/lib/utils";
 
 export interface SessionTrackNavItem {
@@ -24,11 +27,13 @@ export interface SessionTrackNavItem {
   needsAttention: boolean;
   attentionFlaggedBy: AttentionFlaggedBy | null;
   attentionComment: string | null;
+  editingBy?: TrackEditingBy | null;
 }
 
 interface SessionTrackNavProps {
   sessionId: string;
   currentTrackId: string;
+  currentUserId?: string | null;
   tracks: SessionTrackNavItem[];
   onBeforeNavigate?: (href: string) => boolean;
 }
@@ -98,6 +103,7 @@ function TrackNavShell({
 export function SessionTrackNav({
   sessionId,
   currentTrackId,
+  currentUserId,
   tracks,
   onBeforeNavigate,
 }: SessionTrackNavProps) {
@@ -135,72 +141,93 @@ export function SessionTrackNav({
           {tracks.map((track) => {
             const isActive = track.id === currentTrackId;
             const href = `/sessions/${sessionId}/tracks/${track.id}`;
+            const lockedByOther = isTrackLockedByOther(track.editingBy, currentUserId);
+            const rowClassName = cn(
+              "flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors",
+              trackListLinkClassName(track.playbackRange, {
+                active: isActive,
+                needsAttention: track.needsAttention,
+              }),
+              lockedByOther && "cursor-not-allowed opacity-60",
+            );
+            const rowContent = (
+              <>
+                <span className="w-5 shrink-0 text-center text-xs text-muted-foreground">
+                  {track.position + 1}
+                </span>
+                <span className="relative shrink-0">
+                  {track.albumArtUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={track.albumArtUrl}
+                      alt=""
+                      className="size-9 rounded object-cover"
+                    />
+                  ) : (
+                    <div className="size-9 rounded bg-secondary" />
+                  )}
+                  <TrackClipDot playbackRange={track.playbackRange} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate group-hover/tracks:whitespace-nowrap">
+                    {track.trackName}
+                  </span>
+                  <span className="block truncate text-xs font-normal text-muted-foreground group-hover/tracks:whitespace-nowrap">
+                    {track.artistName}
+                  </span>
+                  {track.editingBy && (
+                    <TrackEditingIndicator
+                      editingBy={track.editingBy}
+                      className="mt-1"
+                    />
+                  )}
+                  {track.needsAttention && (
+                    <TrackNeedsAttentionText
+                      needsAttention
+                      flaggedBy={track.attentionFlaggedBy}
+                      comment={track.attentionComment}
+                      className="truncate text-[10px] leading-tight group-hover/tracks:whitespace-normal"
+                    />
+                  )}
+                  {hasCustomClip(track.playbackRange) && (
+                    <>
+                      <TrackClipStatusText
+                        playbackRange={track.playbackRange}
+                        className="block truncate text-[10px] font-medium leading-tight group-hover/tracks:whitespace-nowrap"
+                      />
+                      <TrackReactionCounts
+                        likeCount={track.likeCount ?? 0}
+                        dislikeCount={track.dislikeCount ?? 0}
+                        size="md"
+                        className="mt-1"
+                      />
+                    </>
+                  )}
+                </span>
+              </>
+            );
+
             return (
               <li key={track.id}>
-                <Link
-                  ref={isActive ? activeRef : undefined}
-                  href={href}
-                  onClick={(event) => {
-                    if (onBeforeNavigate && !onBeforeNavigate(href)) {
-                      event.preventDefault();
-                    }
-                  }}
-                  aria-current={isActive ? "page" : undefined}
-                  className={cn(
-                    "flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors",
-                    trackListLinkClassName(track.playbackRange, {
-                      active: isActive,
-                      needsAttention: track.needsAttention,
-                    }),
-                  )}
-                >
-                  <span className="w-5 shrink-0 text-center text-xs text-muted-foreground">
-                    {track.position + 1}
-                  </span>
-                  <span className="relative shrink-0">
-                    {track.albumArtUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={track.albumArtUrl}
-                        alt=""
-                        className="size-9 rounded object-cover"
-                      />
-                    ) : (
-                      <div className="size-9 rounded bg-secondary" />
-                    )}
-                    <TrackClipDot playbackRange={track.playbackRange} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate group-hover/tracks:whitespace-nowrap">
-                      {track.trackName}
-                    </span>
-                    <span className="block truncate text-xs font-normal text-muted-foreground group-hover/tracks:whitespace-nowrap">
-                      {track.artistName}
-                    </span>
-                    {track.needsAttention && (
-                      <TrackNeedsAttentionText
-                        needsAttention
-                        flaggedBy={track.attentionFlaggedBy}
-                        comment={track.attentionComment}
-                        className="truncate text-[10px] leading-tight group-hover/tracks:whitespace-normal"
-                      />
-                    )}
-                    {hasCustomClip(track.playbackRange) && (
-                      <>
-                        <TrackClipStatusText
-                          playbackRange={track.playbackRange}
-                          className="block truncate text-[10px] font-medium leading-tight group-hover/tracks:whitespace-nowrap"
-                        />
-                        <TrackReactionCounts
-                          likeCount={track.likeCount ?? 0}
-                          dislikeCount={track.dislikeCount ?? 0}
-                          size="md"
-                          className="mt-1"
-                        />
-                      </>
-                    )}
-                  </span>
-                </Link>
+                {lockedByOther ? (
+                  <div className={rowClassName} aria-disabled="true">
+                    {rowContent}
+                  </div>
+                ) : (
+                  <Link
+                    ref={isActive ? activeRef : undefined}
+                    href={href}
+                    onClick={(event) => {
+                      if (onBeforeNavigate && !onBeforeNavigate(href)) {
+                        event.preventDefault();
+                      }
+                    }}
+                    aria-current={isActive ? "page" : undefined}
+                    className={rowClassName}
+                  >
+                    {rowContent}
+                  </Link>
+                )}
               </li>
             );
           })}

@@ -11,6 +11,11 @@ import {
 } from "@/lib/spotify";
 import { extractPlaylistId, isPlayableAudioTrack } from "@/lib/spotify-types";
 import { requireTeamMember, teamAccessResponse } from "@/lib/team-auth";
+import {
+  buildSessionsUserReviewProgressMap,
+  trackClipProposalInclude,
+} from "@/lib/track-review";
+import { loadActiveTrackEditLocksForSessions } from "@/lib/track-edit-lock-db";
 
 const createSessionSchema = z.object({
   name: z.string().min(1).max(200),
@@ -53,13 +58,50 @@ export async function GET(request: Request) {
       },
     });
 
+    const sessionIds = sessions.map((session) => session.id);
+    const [clips, reviews, locksByClipId] =
+      sessionIds.length === 0
+        ? [[], [], new Map()]
+        : await Promise.all([
+            prisma.trackClip.findMany({
+              where: { sessionId: { in: sessionIds } },
+              include: trackClipProposalInclude,
+            }),
+            prisma.trackClipReview.findMany({
+              where: {
+                userId,
+                trackClip: { sessionId: { in: sessionIds } },
+              },
+              select: {
+                trackClipId: true,
+                userId: true,
+                versionId: true,
+                verdict: true,
+                comment: true,
+              },
+            }),
+            loadActiveTrackEditLocksForSessions(sessionIds),
+          ]);
+
+    const reviewProgressBySession = buildSessionsUserReviewProgressMap(clips, reviews, {
+      currentUserId: userId,
+      locksByClipId,
+    });
+
     return NextResponse.json(
-      sessions.map(({ user, trackClips, spotifyPlaylistImageUrl, ...session }) => ({
-        ...session,
-        ownerName: user.name ?? user.email.split("@")[0],
-        playlistImageUrl:
-          spotifyPlaylistImageUrl ?? trackClips[0]?.albumArtUrl ?? null,
-      })),
+      sessions.map(
+        ({ user, trackClips, spotifyPlaylistImageUrl, ...session }) => ({
+          ...session,
+          ownerName: user.name ?? user.email.split("@")[0],
+          playlistImageUrl:
+            spotifyPlaylistImageUrl ?? trackClips[0]?.albumArtUrl ?? null,
+          userReviewProgress: reviewProgressBySession.get(session.id) ?? {
+            reviewed: 0,
+            remaining: session._count.trackClips,
+            total: session._count.trackClips,
+          },
+        }),
+      ),
     );
   } catch (err) {
     const response = teamAccessResponse(err);
@@ -106,7 +148,10 @@ export async function POST(request: Request) {
 
     const playlistId = extractPlaylistId(parsed.data.playlistInput);
     if (!playlistId) {
-      return NextResponse.json({ error: "Invalid playlist URL or ID" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid playlist URL or ID" },
+        { status: 400 },
+      );
     }
 
     const [playlistInfo, tracks] = await Promise.all([
@@ -114,7 +159,9 @@ export async function POST(request: Request) {
       getPlaylistTracks(teamId, playlistId),
     ]);
 
-    const playableTracks = tracks.filter((item) => isPlayableAudioTrack(item.track));
+    const playableTracks = tracks.filter((item) =>
+      isPlayableAudioTrack(item.track),
+    );
     if (playableTracks.length === 0) {
       return NextResponse.json(
         {

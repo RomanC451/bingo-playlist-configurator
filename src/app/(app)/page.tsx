@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { History, Users } from "lucide-react";
+import { History } from "lucide-react";
 import { HomePageSkeleton } from "@/components/page-skeletons";
+import { OngoingReviewsPanel } from "@/components/OngoingReviewsPanel";
 import { SessionPanel } from "@/components/session-panel";
 import {
   TracksNeedingAttentionPanel,
@@ -14,6 +15,7 @@ import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { errorMessageFromBody } from "@/lib/api-errors";
 import { readJsonResponse } from "@/lib/read-json-response";
 import { formatRelativeTime } from "@/lib/relative-time";
+import type { OngoingSessionReview } from "@/lib/track-review";
 
 interface HomeSessionSummary {
   id: string;
@@ -22,15 +24,14 @@ interface HomeSessionSummary {
   trackCount: number;
   ownerName: string;
   updatedAt: string;
-  activityAt: string;
   lastWorkedAt?: string;
 }
 
 interface HomeData {
   activeTeam: { id: string; name: string } | null;
   lastWorkedByYou: HomeSessionSummary | null;
-  lastUpdatedByTeam: HomeSessionSummary | null;
   tracksNeedingAttention: AttentionTrackSummary[];
+  ongoingReviews: OngoingSessionReview[];
   error?: string;
 }
 
@@ -125,7 +126,6 @@ export default function HomePage() {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-2">
           <SessionPanel
             icon={History}
             title="Last session you worked on"
@@ -141,22 +141,7 @@ export default function HomePage() {
             }
             emptyMessage="You have not opened any sessions in this team yet."
           />
-          <SessionPanel
-            icon={Users}
-            title="Latest team update"
-            description="The session with the most recent clip save or edit by anyone on the team."
-            badge="Team"
-            session={
-              data.lastUpdatedByTeam
-                ? toSession(
-                    data.lastUpdatedByTeam,
-                    data.lastUpdatedByTeam.activityAt ?? data.lastUpdatedByTeam.updatedAt,
-                  )
-                : null
-            }
-            emptyMessage="No sessions in this team yet. Create one from the Sessions page."
-          />
-          </div>
+          <OngoingReviewsPanel reviews={data.ongoingReviews ?? []} />
           <TracksNeedingAttentionPanel tracks={data.tracksNeedingAttention ?? []} />
         </div>
       )}

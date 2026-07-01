@@ -63,53 +63,21 @@ export async function getHomeSessionHighlights(userId: string, activeTeamId: str
   if (!activeTeamId) {
     return {
       lastWorkedByYou: null,
-      lastUpdatedByTeam: null,
     };
   }
 
-  const [lastActivity, latestSession, latestVersion] = await Promise.all([
-    prisma.sessionUserActivity.findFirst({
-      where: {
-        userId,
-        session: { teamId: activeTeamId },
-      },
-      orderBy: { lastWorkedAt: "desc" },
-      include: { session: { include: sessionInclude } },
-    }),
-    prisma.bingoSession.findFirst({
-      where: { teamId: activeTeamId },
-      orderBy: { updatedAt: "desc" },
-      include: sessionInclude,
-    }),
-    prisma.clipProposalVersion.findFirst({
-      where: { proposal: { trackClip: { session: { teamId: activeTeamId } } } },
-      orderBy: { createdAt: "desc" },
-      include: { proposal: { include: { trackClip: { include: { session: { include: sessionInclude } } } } } },
-    }),
-  ]);
-
-  const teamActivityCandidates: { at: Date; session: SessionRow }[] = [];
-  if (latestSession) {
-    teamActivityCandidates.push({ at: latestSession.updatedAt, session: latestSession });
-  }
-  if (latestVersion) {
-    teamActivityCandidates.push({
-      at: latestVersion.createdAt,
-      session: latestVersion.proposal.trackClip.session,
-    });
-  }
-
-  teamActivityCandidates.sort((a, b) => b.at.getTime() - a.at.getTime());
-  const lastUpdatedByTeam = teamActivityCandidates[0]
-    ? mapSession(teamActivityCandidates[0].session, {
-        activityAt: teamActivityCandidates[0].at,
-      })
-    : null;
+  const lastActivity = await prisma.sessionUserActivity.findFirst({
+    where: {
+      userId,
+      session: { teamId: activeTeamId },
+    },
+    orderBy: { lastWorkedAt: "desc" },
+    include: { session: { include: sessionInclude } },
+  });
 
   return {
     lastWorkedByYou: lastActivity
       ? mapSession(lastActivity.session, { lastWorkedAt: lastActivity.lastWorkedAt })
       : null,
-    lastUpdatedByTeam,
   };
 }

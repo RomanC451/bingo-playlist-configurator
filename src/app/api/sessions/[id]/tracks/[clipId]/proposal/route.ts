@@ -5,6 +5,11 @@ import { prisma } from "@/lib/db";
 import { requireSessionAccess, teamAccessResponse } from "@/lib/team-auth";
 import { touchSessionUpdated } from "@/lib/session-activity";
 import { clearTrackNeedsAttention } from "@/lib/track-attention";
+import {
+  assertTrackEditableByUser,
+  TrackEditLockedError,
+  TrackEditNotHeldError,
+} from "@/lib/track-edit-lock-db";
 import { loadTrackDetail } from "@/lib/track-summaries";
 
 const proposalSchema = z.object({
@@ -57,6 +62,8 @@ export async function PUT(request: Request, context: RouteContext) {
       );
     }
 
+    await assertTrackEditableByUser(clipId, userId);
+
     const { startMs, endMs } = clampClipRange(
       parsed.data.startMs,
       parsed.data.endMs,
@@ -69,14 +76,17 @@ export async function PUT(request: Request, context: RouteContext) {
       update: {},
     });
 
-    await prisma.clipProposalVersion.create({
-      data: {
-        proposalId: proposal.id,
-        startMs,
-        endMs,
-        createdByUserId: userId,
-      },
-    });
+    await prisma.$transaction([
+      prisma.clipProposalVersion.create({
+        data: {
+          proposalId: proposal.id,
+          startMs,
+          endMs,
+          createdByUserId: userId,
+        },
+      }),
+      prisma.trackClipReview.deleteMany({ where: { trackClipId: clipId } }),
+    ]);
 
     await prisma.clipProposal.update({
       where: { id: proposal.id },
@@ -89,6 +99,15 @@ export async function PUT(request: Request, context: RouteContext) {
     const detail = await loadTrackDetail(id, clipId, userId);
     return NextResponse.json(detail);
   } catch (err) {
+    if (err instanceof TrackEditLockedError) {
+      return NextResponse.json(
+        { error: err.message, editingBy: err.editingBy },
+        { status: 409 },
+      );
+    }
+    if (err instanceof TrackEditNotHeldError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
     const response = teamAccessResponse(err);
     if (response) return response;
     throw err;

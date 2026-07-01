@@ -356,7 +356,7 @@ export function WaveformEditor({
   );
 
   const closestHandle = useCallback(
-    (clientX: number): DragHandle => {
+    (clientX: number): "start" | "end" => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return "start";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { reportPlaybackError } from "@/lib/playback-client";
+import { isPlaybackRateLimited, reportPlaybackError } from "@/lib/playback-client";
 import { readJsonResponse } from "@/lib/read-json-response";
 
 export interface SessionPlaybackState {
