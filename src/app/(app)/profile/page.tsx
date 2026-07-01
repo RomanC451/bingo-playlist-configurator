@@ -1,13 +1,11 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
 import { errorMessageFromBody } from "@/lib/api-errors";
 import { readJsonResponse } from "@/lib/read-json-response";
 import { AvatarPicker } from "@/components/AvatarPicker";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
-import { SpotifyConnectionCard } from "@/components/SpotifyConnectionCard";
 import { ProfilePageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 
@@ -19,18 +17,7 @@ interface Profile {
 }
 
 export default function ProfilePage() {
-  return (
-    <Suspense>
-      <ProfileContent />
-    </Suspense>
-  );
-}
-
-function ProfileContent() {
   const { update } = useSession();
-  const searchParams = useSearchParams();
-  const [spotifyLinkedFlash, setSpotifyLinkedFlash] = useState(false);
-  const [spotifyErrorFlash, setSpotifyErrorFlash] = useState<string | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [initialized, setInitialized] = useState(false);
   const { loading, begin, end } = useDelayedLoading();
@@ -69,27 +56,6 @@ function ProfileContent() {
       end();
     }
   }, [begin, end]);
-
-  useEffect(() => {
-    const spotify = searchParams.get("spotify");
-    const spotifyError = searchParams.get("spotify_error");
-    if (spotify === "linked") {
-      setSpotifyLinkedFlash(true);
-      setSpotifyErrorFlash(null);
-      window.history.replaceState({}, "", "/profile");
-    } else if (spotifyError) {
-      setSpotifyErrorFlash(
-        spotifyError === "loopback_required"
-          ? "Spotify cannot use VPN/LAN addresses for login. Open http://127.0.0.1:3000/profile on your PC to connect, then return here."
-          : spotifyError === "invalid_state"
-          ? "Spotify login expired or was interrupted. Try again."
-          : spotifyError.includes("redirect")
-            ? "Spotify rejected the redirect URI. Add the callback URL shown below to your Spotify app settings, then try again."
-            : `Spotify error: ${spotifyError}`,
-      );
-      window.history.replaceState({}, "", "/profile");
-    }
-  }, [searchParams]);
 
   useEffect(() => {
     void loadProfile();
@@ -166,20 +132,8 @@ function ProfileContent() {
     <div className="mx-auto max-w-lg">
       <h1 className="text-2xl font-semibold">Profile</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Your display name appears on clip proposals and team votes.
+        Your display name appears on saved clip versions and team activity.
       </p>
-
-      {spotifyLinkedFlash && (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          Spotify account linked successfully.
-        </div>
-      )}
-
-      {spotifyErrorFlash && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {spotifyErrorFlash}
-        </div>
-      )}
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-6">
         {saveError && (
@@ -265,8 +219,6 @@ function ProfileContent() {
           setPasswordSaved(true);
         }}
       />
-
-      <SpotifyConnectionCard className="mt-10" />
     </div>
   );
 }

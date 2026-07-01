@@ -1,7 +1,13 @@
-export type TeamRoleValue = "ADMIN" | "MEMBER";
+export type TeamRoleValue = "OWNER" | "ADMIN" | "MEMBER";
+
+export function isTeamManagerRole(role: TeamRoleValue) {
+  return role === "OWNER" || role === "ADMIN";
+}
 
 export function formatTeamRoleLabel(role: TeamRoleValue): string {
-  return role === "ADMIN" ? "Owner" : "Member";
+  if (role === "OWNER") return "Owner";
+  if (role === "ADMIN") return "Admin";
+  return "Member";
 }
 
 export function notifyActiveTeamChanged(teamId: string | null) {

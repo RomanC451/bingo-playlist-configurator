@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/api-auth";
-import { setActiveTeamCookie } from "@/lib/active-team";
+import { persistActiveTeamForUser } from "@/lib/active-team";
 import { prisma } from "@/lib/db";
 import { apiErrorResponse } from "@/lib/team-auth";
 
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     });
 
     const response = NextResponse.json({ team, activeTeamId: team.id });
-    setActiveTeamCookie(response, team.id);
+    await persistActiveTeamForUser(userId, team.id, response);
     return response;
   } catch (err) {
     return apiErrorResponse(err, "Failed to join team");

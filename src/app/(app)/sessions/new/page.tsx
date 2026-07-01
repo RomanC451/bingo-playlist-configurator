@@ -44,6 +44,7 @@ export default function NewSessionPage() {
   return (
     <div className="mx-auto max-w-lg">
       <Breadcrumb
+        className="mb-4"
         items={[
           { label: "Bingo sessions", href: "/sessions" },
           { label: "New bingo session" },
@@ -51,8 +52,8 @@ export default function NewSessionPage() {
       />
       <h1 className="text-2xl font-semibold">New bingo session</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Paste a Spotify playlist URL or ID from a playlist you own or collaborate on. Tracks
-        will be imported with default clip ranges.
+        Paste a Spotify playlist URL or ID from a playlist the team&apos;s Spotify account
+        owns or collaborates on. Tracks will be imported with default clip ranges.
       </p>
       <p className="mt-1 text-xs text-zinc-400">
         Spotify editorial playlists (e.g. Discover Weekly, Peaceful Piano) cannot be imported

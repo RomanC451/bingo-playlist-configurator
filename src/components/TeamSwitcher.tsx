@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Users } from "lucide-react";
 import {
   persistActiveTeam,
 } from "@/lib/team-client";
+import { cn } from "@/lib/utils";
 
 interface TeamSummary {
   id: string;
@@ -16,7 +18,13 @@ interface TeamsResponse {
   activeTeamId: string | null;
 }
 
-export function TeamSwitcher({ fullWidth = false }: { fullWidth?: boolean }) {
+export function TeamSwitcher({
+  fullWidth = false,
+  compact = false,
+}: {
+  fullWidth?: boolean;
+  compact?: boolean;
+}) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [teams, setTeams] = useState<TeamSummary[]>([]);
@@ -69,6 +77,83 @@ export function TeamSwitcher({ fullWidth = false }: { fullWidth?: boolean }) {
 
   const activeTeam = teams.find((t) => t.id === activeTeamId);
 
+  const menuPanel = open && (
+    <div
+      className={cn(
+        "absolute top-0 z-30 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-950",
+        compact ? "left-full ml-2" : "top-full mt-2",
+        fullWidth ? "left-0" : compact ? "" : "right-0",
+      )}
+    >
+      <div className="max-h-[min(70vh,24rem)] overflow-y-auto p-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+          Your teams
+        </h3>
+        <ul className="mt-2 space-y-1">
+          {teams.length === 0 ? (
+            <li className="px-2.5 py-2 text-sm text-zinc-500">No teams yet.</li>
+          ) : (
+            teams.map((team) => {
+              const isActive = team.id === activeTeamId;
+              return (
+                <li key={team.id}>
+                  <button
+                    type="button"
+                    onClick={() => void handleSwitchTeam(team.id)}
+                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                      isActive
+                        ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                    }`}
+                  >
+                    <span className="truncate font-medium">{team.name}</span>
+                    {isActive && (
+                      <span className="ml-2 shrink-0 text-xs text-emerald-600 dark:text-emerald-400">
+                        Active
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+        <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+          <Link
+            href="/teams"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center justify-center rounded-lg border border-emerald-600/40 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
+          >
+            Join or create a team
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <div ref={menuRef} className="relative">
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => {
+            if (loading) return;
+            setOpen((value) => !value);
+          }}
+          className="flex size-10 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50 disabled:cursor-default dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-busy={loading}
+          title={activeTeam?.name ?? "Select team"}
+        >
+          <Users className="size-5" aria-hidden="true" />
+        </button>
+        {menuPanel}
+      </div>
+    );
+  }
+
   return (
     <div ref={menuRef} className={`relative ${fullWidth ? "w-full" : ""}`}>
       <button
@@ -105,57 +190,7 @@ export function TeamSwitcher({ fullWidth = false }: { fullWidth?: boolean }) {
         </svg>
       </button>
 
-      {open && (
-        <div
-          className={`absolute top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-950 ${
-            fullWidth ? "left-0" : "right-0"
-          }`}
-        >
-          <div className="max-h-[min(70vh,24rem)] overflow-y-auto p-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-              Your teams
-            </h3>
-            <ul className="mt-2 space-y-1">
-              {teams.length === 0 ? (
-                <li className="px-2.5 py-2 text-sm text-zinc-500">No teams yet.</li>
-              ) : (
-                teams.map((team) => {
-                  const isActive = team.id === activeTeamId;
-                  return (
-                    <li key={team.id}>
-                      <button
-                        type="button"
-                        onClick={() => void handleSwitchTeam(team.id)}
-                        className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
-                          isActive
-                            ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
-                            : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                        }`}
-                      >
-                        <span className="truncate font-medium">{team.name}</span>
-                        {isActive && (
-                          <span className="ml-2 shrink-0 text-xs text-emerald-600 dark:text-emerald-400">
-                            Active
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })
-              )}
-            </ul>
-            <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-              <Link
-                href="/teams"
-                onClick={() => setOpen(false)}
-                className="flex w-full items-center justify-center rounded-lg border border-emerald-600/40 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
-              >
-                Join or create a team
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
+      {menuPanel}
     </div>
   );
 }

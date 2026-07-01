@@ -13,6 +13,10 @@ export class TeamAccessError extends Error {
   }
 }
 
+export function isTeamManager(role: TeamRole) {
+  return role === TeamRole.OWNER || role === TeamRole.ADMIN;
+}
+
 export async function requireTeamMember(teamId: string, userId: string) {
   const member = await prisma.teamMember.findUnique({
     where: { teamId_userId: { teamId, userId } },
@@ -23,13 +27,24 @@ export async function requireTeamMember(teamId: string, userId: string) {
   return member;
 }
 
-export async function requireTeamAdmin(teamId: string, userId: string) {
+export async function requireTeamManager(teamId: string, userId: string) {
   const member = await requireTeamMember(teamId, userId);
-  if (member.role !== TeamRole.ADMIN) {
+  if (!isTeamManager(member.role)) {
+    throw new TeamAccessError("Team admin required", 403);
+  }
+  return member;
+}
+
+export async function requireTeamOwner(teamId: string, userId: string) {
+  const member = await requireTeamMember(teamId, userId);
+  if (member.role !== TeamRole.OWNER) {
     throw new TeamAccessError("Team owner required", 403);
   }
   return member;
 }
+
+/** @deprecated Use requireTeamManager */
+export const requireTeamAdmin = requireTeamManager;
 
 export async function requireSessionAccess(sessionId: string, userId: string) {
   const bingoSession = await prisma.bingoSession.findUnique({
@@ -65,8 +80,8 @@ export async function requireSessionAccess(sessionId: string, userId: string) {
 export async function requireSessionAdmin(sessionId: string, userId: string) {
   const { bingoSession, membership } = await requireSessionAccess(sessionId, userId);
 
-  if (bingoSession.teamId && membership?.role !== TeamRole.ADMIN) {
-    throw new TeamAccessError("Team owner required", 403);
+  if (bingoSession.teamId && membership && !isTeamManager(membership.role)) {
+    throw new TeamAccessError("Team admin required", 403);
   }
 
   if (!bingoSession.teamId && bingoSession.userId !== userId) {

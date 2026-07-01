@@ -11,6 +11,7 @@ import {
   Trash2,
   User,
 } from "lucide-react";
+import { MemberAvatarStack, type MemberUser } from "@/components/MemberAvatarStack";
 import { Button } from "@/components/ui/button";
 
 const ACCENT_COLORS = ["#059669", "#0d9488", "#0891b2", "#6366f1", "#9333ea", "#db2777"];
@@ -36,11 +37,15 @@ export type SessionCardData = {
 
 export function SessionCard({
   session,
+  teamMembers = [],
+  showMemberPhotos,
   onPlay,
   onEdit,
   onDelete,
 }: {
   session: SessionCardData;
+  teamMembers?: MemberUser[];
+  showMemberPhotos?: boolean;
   onPlay?: (id: string) => void;
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
@@ -51,6 +56,13 @@ export function SessionCard({
 
   return (
     <div className="group relative flex flex-col gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40 sm:flex-row sm:items-center sm:gap-5 sm:p-5">
+      {teamMembers.length > 0 && (
+        <MemberAvatarStack
+          members={teamMembers}
+          showPhotos={showMemberPhotos}
+          className="absolute right-4 top-4 z-10"
+        />
+      )}
       <div
         className="relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg sm:size-[68px]"
         style={showImage ? undefined : { backgroundColor: session.accent }}
@@ -73,7 +85,9 @@ export function SessionCard({
       </div>
 
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-base font-semibold leading-tight text-foreground">
+        <h3
+          className={`truncate text-base font-semibold leading-tight text-foreground ${teamMembers.length > 0 ? "pr-24 sm:pr-28" : ""}`}
+        >
           {session.name}
         </h3>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">

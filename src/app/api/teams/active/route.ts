@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/api-auth";
 import {
-  clearActiveTeamCookie,
-  setActiveTeamCookie,
+  clearPersistedActiveTeam,
+  persistActiveTeamForUser,
 } from "@/lib/active-team";
 import { requireTeamMember, TeamAccessError } from "@/lib/team-auth";
 
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     await requireTeamMember(parsed.data.teamId, session!.user!.id);
 
     const response = NextResponse.json({ activeTeamId: parsed.data.teamId });
-    setActiveTeamCookie(response, parsed.data.teamId);
+    await persistActiveTeamForUser(session!.user!.id, parsed.data.teamId, response);
     return response;
   } catch (err) {
     if (err instanceof TeamAccessError) {
@@ -37,10 +37,10 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
-  const { error } = await requireAuth();
+  const { session, error } = await requireAuth();
   if (error) return error;
 
   const response = NextResponse.json({ activeTeamId: null });
-  clearActiveTeamCookie(response);
+  await clearPersistedActiveTeam(session!.user!.id, response);
   return response;
 }

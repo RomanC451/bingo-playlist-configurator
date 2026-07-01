@@ -26,6 +26,7 @@ export function PlaySessionContent({ sessionId }: PlaySessionContentProps) {
   return (
     <div>
       <Breadcrumb
+        className="mb-4"
         items={[
           { label: "Bingo sessions", href: "/sessions" },
           {

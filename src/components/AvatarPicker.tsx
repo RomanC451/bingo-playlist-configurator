@@ -110,7 +110,7 @@ export function AvatarPicker({ value, onChange, previewLabel }: AvatarPickerProp
               Choose an avatar
             </h2>
             <p className="mt-1 text-sm text-zinc-500">
-              Pick one for proposals and team activity.
+              Pick one for clip versions and team activity.
             </p>
 
             <ul className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-6">

@@ -28,10 +28,20 @@ import { errorMessageFromBody } from "@/lib/api-errors";
 import { readJsonResponse } from "@/lib/read-json-response";
 import { notifyActiveTeamChanged, persistActiveTeam } from "@/lib/team-client";
 
+import { MemberAvatarStack } from "@/components/MemberAvatarStack";
+
 interface TeamSummary {
   id: string;
   name: string;
-  members: { role: "ADMIN" | "MEMBER"; user: { id: string } }[];
+  members: {
+    role: "OWNER" | "ADMIN" | "MEMBER";
+    user: {
+      id: string;
+      name: string | null;
+      email: string;
+      image: string | null;
+    };
+  }[];
   _count: { bingoSessions: number };
 }
 
@@ -231,6 +241,10 @@ export function YourTeams() {
                           {team._count.bingoSessions === 1 ? "" : "s"}
                         </span>
                       </CardDescription>
+                      <MemberAvatarStack
+                        members={team.members.map((member) => member.user)}
+                        className="mt-2"
+                      />
                     </div>
                   </div>
                   {isActive && (

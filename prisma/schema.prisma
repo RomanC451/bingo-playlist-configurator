@@ -7,6 +7,7 @@ datasource db {
 }
 
 enum TeamRole {
+  OWNER
   ADMIN
   MEMBER
 }
@@ -21,14 +22,17 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts          Account[]
-  sessions          Session[]
-  spotifyConnection SpotifyConnection?
-  bingoSessions     BingoSession[]
-  teamMembers       TeamMember[]
-  clipProposals     ClipProposal[]
-  clipVotes         ClipVote[]
-  sessionActivity   SessionUserActivity[]
+  accounts              Account[]
+  sessions              Session[]
+  bingoSessions         BingoSession[]
+  teamMembers           TeamMember[]
+  clipProposalVersions  ClipProposalVersion[]
+  clipProposalVersionReactions ClipProposalVersionReaction[]
+  sessionActivity       SessionUserActivity[]
+  tracksFlaggedForAttention TrackClip[] @relation("TrackNeedsAttentionBy")
+  tracksMarkedPerfect     TrackClip[] @relation("TrackMarkedPerfectBy")
+  activeTeamId          String?
+  activeTeam            Team?   @relation("UserActiveTeam", fields: [activeTeamId], references: [id], onDelete: SetNull)
 }
 
 model Account {
@@ -66,7 +70,7 @@ model VerificationToken {
 
 model SpotifyConnection {
   id            String   @id @default(cuid())
-  userId        String   @unique
+  teamId        String   @unique
   spotifyUserId String
   accessToken   String   @db.Text
   refreshToken  String   @db.Text
@@ -74,7 +78,7 @@ model SpotifyConnection {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 }
 
 model Team {
@@ -83,8 +87,10 @@ model Team {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members       TeamMember[]
-  bingoSessions BingoSession[]
+  members           TeamMember[]
+  bingoSessions     BingoSession[]
+  activeForUsers    User[]              @relation("UserActiveTeam")
+  spotifyConnection SpotifyConnection?
 }
 
 model TeamMember {
@@ -145,10 +151,16 @@ model TrackClip {
   position       Int
   startMs        Int    @default(0)
   endMs          Int    @default(30000)
+  needsAttention         Boolean @default(false)
+  needsAttentionByUserId String?
+  needsAttentionComment  String?
+  markedPerfect          Boolean @default(false)
+  markedPerfectByUserId  String?
 
-  session   BingoSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  proposals ClipProposal[]
-  votes     ClipVote[]
+  session            BingoSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  needsAttentionBy   User?         @relation("TrackNeedsAttentionBy", fields: [needsAttentionByUserId], references: [id], onDelete: SetNull)
+  markedPerfectBy    User?         @relation("TrackMarkedPerfectBy", fields: [markedPerfectByUserId], references: [id], onDelete: SetNull)
+  proposal           ClipProposal?
 
   @@unique([sessionId, spotifyTrackId])
   @@index([sessionId, position])
@@ -165,32 +177,46 @@ model TrackWaveform {
 
 model ClipProposal {
   id          String   @id @default(cuid())
-  trackClipId String
-  userId      String
-  startMs     Int
-  endMs       Int
+  trackClipId String   @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  trackClip TrackClip  @relation(fields: [trackClipId], references: [id], onDelete: Cascade)
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  votes     ClipVote[]
-
-  @@unique([trackClipId, userId])
-  @@index([trackClipId])
+  trackClip TrackClip             @relation(fields: [trackClipId], references: [id], onDelete: Cascade)
+  versions  ClipProposalVersion[]
 }
 
-model ClipVote {
-  id          String   @id @default(cuid())
-  trackClipId String
-  userId      String
-  proposalId  String
-  createdAt   DateTime @default(now())
+model ClipProposalVersion {
+  id              String   @id @default(cuid())
+  proposalId      String
+  startMs         Int
+  endMs           Int
+  createdByUserId String
+  createdAt       DateTime @default(now())
 
-  trackClip TrackClip    @relation(fields: [trackClipId], references: [id], onDelete: Cascade)
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   proposal  ClipProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  createdBy User         @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  reactions ClipProposalVersionReaction[]
 
-  @@unique([trackClipId, userId])
-  @@index([proposalId])
+  @@index([proposalId, createdAt])
+  @@index([createdByUserId])
+}
+
+enum ClipReactionType {
+  LIKE
+  DISLIKE
+}
+
+model ClipProposalVersionReaction {
+  versionId String
+  userId    String
+  reaction  ClipReactionType
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  version ClipProposalVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([versionId, userId])
+  @@index([versionId])
+  @@index([userId])
 }

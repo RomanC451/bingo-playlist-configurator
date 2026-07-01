@@ -2,11 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Music2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { readJsonResponse } from "@/lib/read-json-response";
-
-const DEFAULT_LOOPBACK_CALLBACK = "http://127.0.0.1:3000/api/spotify/callback";
-const DEFAULT_LOOPBACK_PROFILE = "http://127.0.0.1:3000/profile";
 
 interface SpotifyAccount {
   id: string;
@@ -19,38 +15,37 @@ interface SpotifyAccount {
 interface SpotifyStatus {
   linked: boolean;
   configured: boolean;
+  canManage: boolean;
+  canLinkHere: boolean;
+  linkUrl: string;
+  switchUrl: string;
+  loopbackLinkUrl: string;
+  linkFallbackUrl: string | null;
   account: SpotifyAccount | null;
   profileError?: string;
-  redirectUri: string | null;
-  canLinkHere: boolean;
-  linkFallbackUrl: string | null;
 }
 
 function accountLabel(account: SpotifyAccount): string {
-  return account.displayName?.trim() || account.email || account.id;
+  return account.email?.trim() || account.displayName?.trim() || account.id;
 }
 
-function isPremiumProduct(product: string | null): boolean {
-  return !!product && product !== "free";
-}
-
-function isLoopbackRedirectUri(uri: string): boolean {
-  try {
-    const host = new URL(uri).hostname;
-    return host === "127.0.0.1" || host === "localhost" || host === "[::1]" || host === "::1";
-  } catch {
-    return false;
-  }
-}
-
-export function SpotifyConnectionCard({ className = "" }: { className?: string }) {
+export function SpotifyConnectionCard({
+  teamId,
+  className = "",
+}: {
+  teamId: string;
+  className?: string;
+}) {
   const [status, setStatus] = useState<SpotifyStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [unlinking, setUnlinking] = useState(false);
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/spotify/status");
+      const res = await fetch(
+        `/api/spotify/status?teamId=${encodeURIComponent(teamId)}`,
+      );
       if (res.ok) {
         setStatus(await readJsonResponse<SpotifyStatus>(res));
       } else {
@@ -59,21 +54,37 @@ export function SpotifyConnectionCard({ className = "" }: { className?: string }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [teamId]);
 
   useEffect(() => {
     void loadStatus();
   }, [loadStatus]);
 
+  async function handleDisconnect() {
+    if (!confirm("Disconnect Spotify from this team? Members will not be able to import or play until an admin reconnects.")) {
+      return;
+    }
+    setUnlinking(true);
+    try {
+      const res = await fetch(
+        `/api/spotify/link?teamId=${encodeURIComponent(teamId)}`,
+        { method: "DELETE" },
+      );
+      if (res.ok) {
+        await loadStatus();
+      }
+    } finally {
+      setUnlinking(false);
+    }
+  }
+
   if (loading) {
     return (
-      <section
-        className={`rounded-xl border border-border bg-card p-4 ${className}`}
+      <div
+        className={`h-9 animate-pulse rounded-lg bg-muted ${className}`}
         aria-busy="true"
         aria-label="Loading Spotify connection"
-      >
-        <div className="h-12 animate-pulse rounded-lg bg-muted" />
-      </section>
+      />
     );
   }
 
@@ -82,149 +93,85 @@ export function SpotifyConnectionCard({ className = "" }: { className?: string }
   }
 
   const account = status.account;
-  const redirectUri = status.redirectUri ?? DEFAULT_LOOPBACK_CALLBACK;
-  const canLinkNow = status.canLinkHere;
-  const linkFallbackUrl = status.linkFallbackUrl;
-  const loopbackRedirect = isLoopbackRedirectUri(redirectUri);
+  const connectHref =
+    status.canLinkHere ? status.linkUrl : status.loopbackLinkUrl;
+  const isLinked = status.linked && account;
 
   return (
-    <section className={`rounded-xl border border-border bg-card p-4 sm:p-5 ${className}`}>
-      <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#1DB954]/15 text-[#1DB954]">
-          <Music2 className="size-5" aria-hidden="true" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold">Spotify</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Used to import playlists and control playback on your devices.
-          </p>
-        </div>
-      </div>
+    <div
+      className={`flex flex-wrap items-center gap-2.5 rounded-lg border px-3 py-2 text-sm ${
+        isLinked
+          ? "border-border bg-muted/40"
+          : "border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40"
+      } ${className}`}
+      role={isLinked ? undefined : "alert"}
+    >
+      <Music2
+        className={`size-4 shrink-0 ${isLinked ? "text-[#1DB954]" : "text-amber-600 dark:text-amber-400"}`}
+        aria-hidden="true"
+      />
 
-      <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/30 p-3 text-sm">
-        <p className="font-medium">Spotify Developer redirect URI</p>
-        <p className="mt-1 text-muted-foreground">
-          {loopbackRedirect
-            ? "Spotify only accepts loopback HTTP URLs for local dev. Register this in your "
-            : "Register this HTTPS callback URL in your "}
-          <a
-            href="https://developer.spotify.com/dashboard"
-            target="_blank"
-            rel="noreferrer"
-            className="underline underline-offset-2"
-          >
-            Spotify app settings
-          </a>
-          :
-        </p>
-        <code className="mt-2 block break-all rounded bg-background px-2 py-1.5 text-xs">
-          {redirectUri}
-        </code>
-        {!canLinkNow && linkFallbackUrl && (
-          <p className="mt-3 text-amber-800 dark:text-amber-200">
-            You opened the app via VPN/LAN ({typeof window !== "undefined" ? window.location.host : "…"}).
-            Spotify login only works from your PC at{" "}
-            <a href={linkFallbackUrl} className="font-medium underline underline-offset-2">
-              {linkFallbackUrl}
-            </a>
-            . After linking once, you can keep using the app on your phone.
+      {isLinked ? (
+        <>
+          <span
+            className="size-2 shrink-0 rounded-full bg-[#1DB954]"
+            aria-hidden="true"
+          />
+          <p className="min-w-0 flex-1 truncate text-muted-foreground">
+            Team Spotify:{" "}
+            <span className="font-medium text-foreground">{accountLabel(account)}</span>
           </p>
-        )}
-      </div>
-
-      {status.linked && account ? (
-        <div className="mt-4 rounded-lg border border-border bg-background/50 p-3 sm:p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Linked account
-          </p>
-          <div className="mt-2 flex items-center gap-3">
-            {account.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={account.imageUrl}
-                alt=""
-                className="size-11 rounded-full object-cover"
-              />
-            ) : (
-              <div className="flex size-11 items-center justify-center rounded-full bg-[#1DB954]/20 text-sm font-semibold text-[#1DB954]">
-                {accountLabel(account).charAt(0).toUpperCase()}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{accountLabel(account)}</p>
-              {account.email && account.email !== accountLabel(account) && (
-                <p className="truncate text-sm text-muted-foreground">{account.email}</p>
-              )}
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                {account.product && (
-                  <span
-                    className={`rounded-full px-2 py-0.5 font-medium ${
-                      isPremiumProduct(account.product)
-                        ? "bg-[#1DB954]/15 text-[#1DB954]"
-                        : "bg-secondary text-secondary-foreground"
-                    }`}
-                  >
-                    {isPremiumProduct(account.product) ? "Premium" : "Free"}
-                  </span>
-                )}
-                <span className="font-mono">{account.id}</span>
-              </div>
-            </div>
-          </div>
           {status.profileError === "not_allowlisted" && (
-            <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">
-              Spotify blocked API access for this account. Playback may not work until the app
-              owner allowlists it.
-            </p>
+            <span
+              className="shrink-0 text-xs text-amber-600 dark:text-amber-400"
+              title="Spotify blocked API access for this account"
+            >
+              Limited
+            </span>
           )}
-          <div className="mt-4 flex flex-wrap gap-2">
-            {canLinkNow ? (
-              <a href="/api/spotify/link">
-                <Button type="button" variant="outline" size="sm">
-                  Use another account
-                </Button>
-              </a>
-            ) : (
-              <a href={linkFallbackUrl ?? DEFAULT_LOOPBACK_PROFILE}>
-                <Button type="button" variant="outline" size="sm">
-                  Switch account on PC
-                </Button>
-              </a>
-            )}
-          </div>
-          {canLinkNow && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              If Spotify keeps signing in to the same user, log out at{" "}
+          {status.canManage && (
+            <>
               <a
-                href="https://accounts.spotify.com/logout"
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-2"
+                href={status.canLinkHere ? status.switchUrl : status.loopbackLinkUrl + "?switch=1"}
+                className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                title="Sign in with a different Spotify account"
               >
-                accounts.spotify.com
-              </a>{" "}
-              first, then try again.
-            </p>
+                Link different account
+              </a>
+              <button
+                type="button"
+                disabled={unlinking}
+                onClick={() => void handleDisconnect()}
+                className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+              >
+                {unlinking ? "Disconnecting…" : "Disconnect"}
+              </button>
+            </>
           )}
-        </div>
+        </>
       ) : (
-        <div className="mt-4">
-          <p className="text-sm text-muted-foreground">No Spotify account linked yet.</p>
-          {canLinkNow ? (
-            <a href="/api/spotify/link" className="mt-3 inline-block">
-              <Button type="button" className="bg-[#1DB954] text-white hover:bg-[#1ed760]">
-                Connect Spotify
-              </Button>
-            </a>
-          ) : (
-            <a href={linkFallbackUrl ?? DEFAULT_LOOPBACK_PROFILE} className="mt-3 inline-block">
-              <Button type="button" className="bg-[#1DB954] text-white hover:bg-[#1ed760]">
-                Connect on PC
-              </Button>
+        <>
+          <p
+            className={`min-w-0 flex-1 ${
+              status.canManage
+                ? "text-amber-900 dark:text-amber-100"
+                : "text-amber-800 dark:text-amber-200"
+            }`}
+          >
+            {status.canManage
+              ? "Team Spotify not connected — connect an account to import playlists and play clips."
+              : "This team has no Spotify account linked. Ask a team admin to connect Spotify."}
+          </p>
+          {status.canManage && (
+            <a
+              href={connectHref}
+              className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-900 underline-offset-2 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900"
+            >
+              Connect Spotify
             </a>
           )}
-        </div>
+        </>
       )}
-    </section>
+    </div>
   );
 }

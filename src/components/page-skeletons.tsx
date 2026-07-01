@@ -103,12 +103,23 @@ export function TeamsPageSkeleton() {
   );
 }
 
-export function TrackPageSkeleton() {
+export function TrackPageSkeleton({ contentOnly = false }: { contentOnly?: boolean }) {
   return (
     <div aria-busy="true" aria-label="Loading track">
-      <Skeleton className="mb-4 h-4 w-64" />
-      <Skeleton className="h-8 w-64" />
-      <Skeleton className="mt-2 h-4 w-48" />
+      {!contentOnly && (
+        <>
+          <Skeleton className="mb-4 h-4 w-64" />
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="mt-2 h-4 w-48" />
+        </>
+      )}
+      {contentOnly && (
+        <>
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="mt-1 h-8 w-64" />
+          <Skeleton className="mt-2 h-4 w-48" />
+        </>
+      )}
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Skeleton className="h-48 w-full rounded-xl" />
         <div className="space-y-3">

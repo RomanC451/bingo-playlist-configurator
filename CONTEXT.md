@@ -11,7 +11,10 @@ A group that owns bingo sessions. Users can belong to multiple teams.
 A user's membership on a Team. Role is `ADMIN` or `MEMBER`.
 
 - **ADMIN** — manage members, delete sessions
-- **MEMBER** — propose clips, vote, import (if Spotify linked), playback
+- **MEMBER** — propose clips, vote, import playlists, playback
+
+### SpotifyConnection
+OAuth tokens for one Spotify account linked to a Team. Team admins connect, switch, or disconnect. All members use the team account for import and playback.
 
 ### BingoSession
 A Spotify playlist import plus its track list. Belongs to one Team. Created by a User (`userId`).
@@ -34,7 +37,7 @@ Fallback range on a Track when no votes exist: `startMs` (typically `0`) through
 ## Access rules
 
 - Session access requires membership on the session's Team.
-- Spotify credentials remain **per-user** (`SpotifyConnection`); any linked member can import and control playback on their device.
+- Spotify credentials are per-team (`SpotifyConnection` on Team). Team admins link one shared account; any member can import and control playback on that account's devices.
 - Team join is admin-only: add member by email (no accept flow).
 
 ## Bootstrap

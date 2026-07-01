@@ -6,25 +6,30 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 type LoginPageProps = {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; callbackUrl?: string }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { error } = await searchParams;
+  const { error, callbackUrl } = await searchParams;
+  const safeCallbackUrl =
+    callbackUrl?.startsWith("/") ? callbackUrl : undefined;
   const errorMessage = error ? ERROR_MESSAGES[error] ?? "Sign in failed" : null;
 
   return (
     <div className="mx-auto w-full max-w-md">
       <h1 className="text-2xl font-semibold">Sign in</h1>
       <p className="mt-2 text-sm text-zinc-500">
-        Host music bingo with custom clip ranges. Use{" "}
+        Host music bingo with custom clip ranges. For Spotify Connect, sign in at{" "}
         <a href="http://127.0.0.1:3000/login" className="text-emerald-600 hover:underline">
           http://127.0.0.1:3000
         </a>{" "}
-        for Spotify Connect.
+        (not localhost) and connect from team settings.
       </p>
 
       <form action={loginAction} className="mt-8 space-y-4">
+        {safeCallbackUrl && (
+          <input type="hidden" name="callbackUrl" value={safeCallbackUrl} />
+        )}
         {errorMessage && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {errorMessage}

@@ -6,6 +6,10 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { DeleteSessionDialog } from "@/components/DeleteSessionDialog";
 import { SpotifyConnectionCard } from "@/components/SpotifyConnectionCard";
 import {
+  useAlternatingMemberPhotos,
+  type MemberUser,
+} from "@/components/MemberAvatarStack";
+import {
   accentForSession,
   SessionCard,
   type SessionCardData,
@@ -20,6 +24,9 @@ function SessionsContent() {
   const searchParams = useSearchParams();
   const [sessions, setSessions] = useState<SessionCardData[]>([]);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<MemberUser[]>([]);
+  const showMemberPhotos = useAlternatingMemberPhotos();
+  const [teamSpotifyLinked, setTeamSpotifyLinked] = useState(false);
   const [spotifyConfigured, setSpotifyConfigured] = useState(true);
   const [clientIdHint, setClientIdHint] = useState<string | null>(null);
   const [spotifyRedirectUri, setSpotifyRedirectUri] = useState<string | null>(null);
@@ -39,15 +46,27 @@ function SessionsContent() {
     try {
       const teamsRes = await fetch("/api/teams");
       let teamId: string | null = null;
+      let nextTeamMembers: MemberUser[] = [];
       if (teamsRes.ok) {
-        const teamsData = await teamsRes.json();
+        const teamsData = await readJsonResponse<{
+          activeTeamId: string | null;
+          teams: {
+            id: string;
+            members: { user: MemberUser }[];
+          }[];
+        }>(teamsRes);
         teamId = teamsData.activeTeamId;
+        const activeTeam = teamsData.teams.find((team) => team.id === teamId);
+        nextTeamMembers = activeTeam?.members.map((member) => member.user) ?? [];
       }
 
       const sessionsQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
+      const spotifyUrl = teamId
+        ? `/api/spotify/status?teamId=${encodeURIComponent(teamId)}`
+        : null;
       const [sessionsRes, spotifyRes] = await Promise.all([
         fetch(`/api/sessions${sessionsQuery}`),
-        fetch("/api/spotify/status"),
+        spotifyUrl ? fetch(spotifyUrl) : Promise.resolve(null),
       ]);
 
       const rawSessions = sessionsRes.ok
@@ -75,17 +94,21 @@ function SessionsContent() {
         accent: accentForSession(session.id),
       }));
       let nextSpotifyConfigured = true;
+      let nextTeamSpotifyLinked = false;
       let nextClientIdHint: string | null = null;
       let nextSpotifyRedirectUri: string | null = null;
-      if (spotifyRes.ok) {
+      if (spotifyRes?.ok) {
         const data = await spotifyRes.json();
         nextSpotifyConfigured = data.configured;
+        nextTeamSpotifyLinked = data.linked === true;
         nextClientIdHint = data.clientIdHint ?? null;
         nextSpotifyRedirectUri = data.redirectUri ?? null;
       }
 
       setActiveTeamId(teamId);
+      setTeamMembers(nextTeamMembers);
       setSessions(nextSessions);
+      setTeamSpotifyLinked(nextTeamSpotifyLinked);
       setSpotifyConfigured(nextSpotifyConfigured);
       setClientIdHint(nextClientIdHint);
       setSpotifyRedirectUri(nextSpotifyRedirectUri);
@@ -122,13 +145,13 @@ function SessionsContent() {
   const spotifyDetail = flash?.spotifyDetail ?? null;
   const flashMessage =
     spotify === "linked"
-      ? "Spotify account linked successfully."
+      ? "Team Spotify account linked successfully."
       : spotifyError === "not_configured"
         ? "Spotify is not configured. Add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to your .env file and restart the dev server."
         : spotifyError === "not_allowlisted"
           ? null
           : spotifyError === "invalid_state"
-            ? "Spotify login expired or was interrupted. Try Connect Spotify again."
+            ? "Spotify login expired or was interrupted. Try connecting again from team settings."
             : spotifyError
               ? `Spotify error: ${spotifyError}`
               : null;
@@ -165,8 +188,8 @@ function SessionsContent() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Bingo Sessions</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Import Spotify playlists and configure clip ranges for bingo night.
@@ -175,16 +198,23 @@ function SessionsContent() {
               : " Select or create a team to view and create sessions."}
           </p>
         </div>
-        {activeTeamId ? (
+        {activeTeamId && teamSpotifyLinked ? (
           <Link
             href="/sessions/new"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            className="inline-flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 sm:w-auto"
           >
             New session
           </Link>
+        ) : activeTeamId ? (
+          <span
+            className="inline-flex w-full shrink-0 cursor-not-allowed items-center justify-center whitespace-nowrap rounded-lg bg-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-500 dark:bg-zinc-800 sm:w-auto"
+            title="Connect Spotify for this team in team settings"
+          >
+            New session
+          </span>
         ) : (
           <span
-            className="cursor-not-allowed rounded-lg bg-zinc-300 px-4 py-2 text-sm font-medium text-zinc-500 dark:bg-zinc-800"
+            className="inline-flex w-full shrink-0 cursor-not-allowed items-center justify-center whitespace-nowrap rounded-lg bg-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-500 dark:bg-zinc-800 sm:w-auto"
             title="Create or join a team first"
           >
             New session
@@ -294,7 +324,22 @@ function SessionsContent() {
         </div>
       )}
 
-      {spotifyConfigured && <SpotifyConnectionCard className="mt-6" />}
+      {spotifyConfigured && activeTeamId && (
+        <SpotifyConnectionCard teamId={activeTeamId} className="mt-6" />
+      )}
+
+      {activeTeamId && !teamSpotifyLinked && spotifyConfigured && (
+        <p className="mt-2 text-sm text-zinc-500">
+          A team admin must connect Spotify in{" "}
+          <Link
+            href={`/teams/${activeTeamId}/settings`}
+            className="text-emerald-600 hover:underline"
+          >
+            team settings
+          </Link>{" "}
+          before importing playlists.
+        </p>
+      )}
 
       {!activeTeamId && (
         <div className="mt-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
@@ -313,9 +358,22 @@ function SessionsContent() {
           ) : (
             <>
               <p className="text-zinc-500">No sessions yet.</p>
-              <Link href="/sessions/new" className="mt-2 inline-block text-emerald-600 hover:underline">
-                Create your first bingo session
-              </Link>
+              {teamSpotifyLinked ? (
+                <Link href="/sessions/new" className="mt-2 inline-block text-emerald-600 hover:underline">
+                  Create your first bingo session
+                </Link>
+              ) : (
+                <p className="mt-2 text-sm text-zinc-400">
+                  Connect team Spotify in{" "}
+                  <Link
+                    href={`/teams/${activeTeamId}/settings`}
+                    className="text-emerald-600 hover:underline"
+                  >
+                    team settings
+                  </Link>{" "}
+                  to import a playlist.
+                </p>
+              )}
             </>
           )}
         </div>
@@ -325,6 +383,8 @@ function SessionsContent() {
             <li key={session.id}>
               <SessionCard
                 session={session}
+                teamMembers={teamMembers}
+                showMemberPhotos={showMemberPhotos}
                 onPlay={(id) => router.push(`/sessions/${id}/play`)}
                 onEdit={(id) => router.push(`/sessions/${id}/edit`)}
                 onDelete={() => {

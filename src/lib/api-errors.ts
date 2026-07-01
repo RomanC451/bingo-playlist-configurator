@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import type { SpotifyApiError } from "@/lib/spotify";
 
-export type ApiErrorSource = "internal" | "spotify" | "wavevisual";
+export type ApiErrorSource = "internal" | "spotify";
 
-export type ExternalService = "spotify" | "wavevisual";
+export type ExternalService = "spotify";
 
 export interface ApiErrorPayload {
   error: string;
@@ -41,6 +41,25 @@ export function formatRetryAfterSeconds(seconds?: number): string | null {
   if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
   if (hours > 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+/** How long to wait until a Spotify rate limit resets (for toasts). */
+export function rateLimitWaitTime(data: unknown): string {
+  const external = externalErrorFromBody(data);
+
+  const fromSeconds = formatRetryAfterSeconds(external?.retryAfterSeconds);
+  if (fromSeconds) {
+    return fromSeconds;
+  }
+
+  if (external?.retryAt) {
+    const remainingMs = new Date(external.retryAt).getTime() - Date.now();
+    if (!Number.isNaN(remainingMs) && remainingMs > 0) {
+      return formatRetryAfterSeconds(Math.ceil(remainingMs / 1000)) ?? "Try again later";
+    }
+  }
+
+  return "Try again later";
 }
 
 function spotifyFriendlyMessage(err: SpotifyApiError): string {
@@ -85,28 +104,6 @@ export function spotifyErrorResponse(err: SpotifyApiError): NextResponse<ApiErro
   );
 }
 
-export function waveVisualErrorPayload(
-  message: string,
-  status: number,
-  detail?: string,
-): ApiErrorPayload {
-  return {
-    error: message,
-    source: "wavevisual",
-    service: "wavevisual",
-    detail,
-    upstreamStatus: status,
-  };
-}
-
-export function waveVisualErrorResponse(
-  message: string,
-  status: number,
-  detail?: string,
-): NextResponse<ApiErrorPayload> {
-  return apiErrorJson(waveVisualErrorPayload(message, status, detail), status);
-}
-
 export function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
@@ -118,9 +115,6 @@ export function formatApiErrorMessage(payload: Partial<ApiErrorPayload>, fallbac
 
   if (payload.source === "spotify") {
     return payload.error.startsWith("Spotify") ? payload.error : `Spotify: ${payload.error}`;
-  }
-  if (payload.source === "wavevisual") {
-    return payload.error.startsWith("WaveVisual") ? payload.error : `WaveVisual: ${payload.error}`;
   }
 
   return payload.error;
@@ -138,6 +132,6 @@ export function errorMessageFromBody(data: unknown, fallback = "Request failed")
 
 export function externalErrorFromBody(data: unknown): ApiErrorPayload | null {
   if (!isApiErrorPayload(data)) return null;
-  if (data.source === "spotify" || data.source === "wavevisual") return data;
+  if (data.source === "spotify") return data;
   return null;
 }

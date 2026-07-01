@@ -7,14 +7,44 @@ export function getSpotifyClientSecret(): string | undefined {
 }
 
 const DEFAULT_LOOPBACK_CALLBACK = "http://127.0.0.1:3000/api/spotify/callback";
-const DEFAULT_LOOPBACK_PROFILE = "http://127.0.0.1:3000/profile";
 
 export function getSpotifyRedirectUri(): string {
   return process.env.SPOTIFY_REDIRECT_URI?.trim() || DEFAULT_LOOPBACK_CALLBACK;
 }
 
-export function getSpotifyLinkFallbackUrl(): string {
-  return DEFAULT_LOOPBACK_PROFILE;
+export function getSpotifyTeamSettingsUrl(teamId: string): string {
+  try {
+    const { protocol, host } = new URL(getSpotifyRedirectUri());
+    return `${protocol}//${host}/teams/${teamId}/settings`;
+  } catch {
+    return `http://127.0.0.1:3000/teams/${teamId}/settings`;
+  }
+}
+
+export function getSpotifyLinkFallbackUrl(teamId?: string): string {
+  if (teamId) return getSpotifyTeamSettingsUrl(teamId);
+  try {
+    const { protocol, host } = new URL(getSpotifyRedirectUri());
+    return `${protocol}//${host}/teams`;
+  } catch {
+    return "http://127.0.0.1:3000/teams";
+  }
+}
+
+export function getSpotifyLoopbackLinkUrl(teamId?: string): string {
+  try {
+    const { protocol, host } = new URL(getSpotifyRedirectUri());
+    const base = `${protocol}//${host}`;
+    if (teamId) {
+      return `${base}/teams/${teamId}/settings/connect-spotify`;
+    }
+    return `${base}/teams`;
+  } catch {
+    if (teamId) {
+      return `http://127.0.0.1:3000/teams/${teamId}/settings/connect-spotify`;
+    }
+    return "http://127.0.0.1:3000/teams";
+  }
 }
 
 export function isLoopbackHostname(hostname: string): boolean {
@@ -23,7 +53,8 @@ export function isLoopbackHostname(hostname: string): boolean {
 
 export function isLoopbackRedirectUri(uri: string): boolean {
   try {
-    return isLoopbackHostname(new URL(uri).hostname);
+    const hostname = new URL(uri).hostname;
+    return isLoopbackHostname(hostname) || hostname === "localhost";
   } catch {
     return false;
   }
@@ -114,6 +145,30 @@ export function requestOrigin(request: Request): string {
     }
   }
   return url.origin;
+}
+
+export function originFromHeaders(headerList: Headers): string {
+  const forwardedHost = headerList.get("x-forwarded-host");
+  const forwardedProto = headerList.get("x-forwarded-proto");
+  const host = forwardedHost?.split(",")[0]?.trim() ?? headerList.get("host");
+  if (host) {
+    return `${forwardedProto ?? "http"}://${host}`;
+  }
+  return "http://127.0.0.1:3000";
+}
+
+export function resolveSpotifyRedirectUriFromOrigin(origin: string): string {
+  const configured = process.env.SPOTIFY_REDIRECT_URI?.trim();
+  if (isProductionHttpsOrigin(origin)) {
+    if (configured?.startsWith("https://")) {
+      return configured;
+    }
+    return `${origin}/api/spotify/callback`;
+  }
+  if (configured) {
+    return configured;
+  }
+  return DEFAULT_LOOPBACK_CALLBACK;
 }
 
 export function isSpotifyConfigured(): boolean {

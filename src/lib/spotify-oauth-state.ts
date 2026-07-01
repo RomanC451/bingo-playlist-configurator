@@ -12,9 +12,14 @@ function sign(payload: string): string {
   return createHmac("sha256", getSecret()).update(payload).digest("base64url");
 }
 
-export function createSpotifyOAuthState(userId: string, redirectUri: string): string {
+export function createSpotifyOAuthState(
+  teamId: string,
+  userId: string,
+  redirectUri: string,
+): string {
   const payload = Buffer.from(
     JSON.stringify({
+      teamId,
       userId,
       redirectUri,
       expires: Date.now() + STATE_TTL_MS,
@@ -27,7 +32,7 @@ export function createSpotifyOAuthState(userId: string, redirectUri: string): st
 
 export function verifySpotifyOAuthState(
   state: string,
-): { userId: string; redirectUri: string } | null {
+): { teamId: string; userId: string; redirectUri: string } | null {
   const dotIndex = state.lastIndexOf(".");
   if (dotIndex === -1) return null;
 
@@ -46,14 +51,25 @@ export function verifySpotifyOAuthState(
 
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+      teamId?: string;
       userId?: string;
       redirectUri?: string;
       expires?: number;
     };
-    if (!data.userId || !data.redirectUri || !data.expires || Date.now() > data.expires) {
+    if (
+      !data.teamId ||
+      !data.userId ||
+      !data.redirectUri ||
+      !data.expires ||
+      Date.now() > data.expires
+    ) {
       return null;
     }
-    return { userId: data.userId, redirectUri: data.redirectUri };
+    return {
+      teamId: data.teamId,
+      userId: data.userId,
+      redirectUri: data.redirectUri,
+    };
   } catch {
     return null;
   }

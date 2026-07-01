@@ -25,7 +25,7 @@ export async function ensurePersonalTeam(userId: string): Promise<string> {
     data: {
       name: personalTeamName(user.name, user.email),
       members: {
-        create: { userId, role: TeamRole.ADMIN },
+        create: { userId, role: TeamRole.OWNER },
       },
     },
   });

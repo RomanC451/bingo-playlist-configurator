@@ -1,19 +1,27 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { Crown, MoreVertical, Shield, ShieldOff, Trash2 } from "lucide-react";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { DeleteTeamDialog } from "@/components/DeleteTeamDialog";
+import { SpotifyConnectionCard } from "@/components/SpotifyConnectionCard";
 import { TeamSettingsPageSkeleton } from "@/components/page-skeletons";
+import { Button } from "@/components/ui/button";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { errorMessageFromBody } from "@/lib/api-errors";
 import { readJsonResponse } from "@/lib/read-json-response";
-import { notifyActiveTeamChanged, formatTeamRoleLabel } from "@/lib/team-client";
+import {
+  notifyActiveTeamChanged,
+  formatTeamRoleLabel,
+  isTeamManagerRole,
+  type TeamRoleValue,
+} from "@/lib/team-client";
 
 interface TeamMember {
   id: string;
-  role: "ADMIN" | "MEMBER";
+  role: TeamRoleValue;
   user: { id: string; name: string | null; email: string };
 }
 
@@ -24,8 +32,114 @@ interface TeamDetail {
   _count: { bingoSessions: number };
 }
 
+function MemberActionsMenu({
+  member,
+  canTransfer,
+  canDemote,
+  onPromote,
+  onDemote,
+  onTransfer,
+  onRemove,
+}: {
+  member: TeamMember;
+  canTransfer: boolean;
+  canDemote: boolean;
+  onPromote: () => void | Promise<void>;
+  onDemote: () => void | Promise<void>;
+  onTransfer: () => void | Promise<void>;
+  onRemove: () => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const memberName = member.user.name ?? member.user.email;
+
+  function runAction(action: () => void | Promise<void>) {
+    setOpen(false);
+    void Promise.resolve(action());
+  }
+
+  return (
+    <div
+      className="relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        aria-label={`Actions for ${memberName}`}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <MoreVertical className="size-4" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-full z-10 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg">
+          {member.role === "MEMBER" && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => runAction(onPromote)}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-secondary"
+            >
+              <Shield className="size-4" />
+              Make admin
+            </button>
+          )}
+          {canDemote && member.role === "ADMIN" && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => runAction(onDemote)}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-secondary"
+            >
+              <ShieldOff className="size-4" />
+              Make member
+            </button>
+          )}
+          {canTransfer && member.role !== "OWNER" && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => runAction(onTransfer)}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-secondary"
+            >
+              <Crown className="size-4" />
+              Transfer ownership
+            </button>
+          )}
+          {member.role !== "OWNER" && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => runAction(onRemove)}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+            >
+              <Trash2 className="size-4" />
+              Remove
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TeamSettingsPage() {
+  return (
+    <Suspense>
+      <TeamSettingsContent />
+    </Suspense>
+  );
+}
+
+function TeamSettingsContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { data: authSession } = useSession();
   const teamId = params.id as string;
@@ -39,6 +153,46 @@ export default function TeamSettingsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [spotifyFlash, setSpotifyFlash] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+  const [memberActionError, setMemberActionError] = useState<string | null>(null);
+
+  function runMenuAction(action: () => void | Promise<void>) {
+    void Promise.resolve(action()).catch(() => {
+      setMemberActionError("Something went wrong. Try again.");
+    });
+  }
+
+  useEffect(() => {
+    const spotify = searchParams.get("spotify");
+    const spotifyError = searchParams.get("spotify_error");
+    const spotifyDetail = searchParams.get("spotify_detail");
+
+    if (spotify === "linked") {
+      setSpotifyFlash({
+        success: true,
+        message: "Team Spotify account linked successfully.",
+      });
+      window.history.replaceState({}, "", `/teams/${teamId}/settings`);
+    } else if (spotifyError) {
+      const message =
+        spotifyError === "loopback_required"
+          ? "Spotify cannot use VPN/LAN addresses for login. Open http://127.0.0.1:3000 while signed in, go to team settings, and connect Spotify there."
+          : spotifyError === "forbidden"
+            ? "Only team admins can connect Spotify for this team."
+          : spotifyError === "account_switch_incomplete"
+            ? "Could not switch Spotify accounts. Log out at accounts.spotify.com, then try again."
+            : spotifyError === "invalid_state"
+              ? "Spotify login expired or was interrupted. Try again."
+              : spotifyDetail
+                ? `${spotifyError}: ${spotifyDetail}`
+                : `Spotify error: ${spotifyError}`;
+      setSpotifyFlash({ success: false, message });
+      window.history.replaceState({}, "", `/teams/${teamId}/settings`);
+    }
+  }, [searchParams, teamId]);
 
   const loadTeam = useCallback(async () => {
     begin();
@@ -74,12 +228,73 @@ export default function TeamSettingsPage() {
 
   async function removeMember(userId: string, memberEmail: string) {
     if (!confirm(`Remove ${memberEmail} from this team?`)) return;
+    setMemberActionError(null);
     const res = await fetch(`/api/teams/${teamId}/members`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId }),
     });
-    if (res.ok) await loadTeam();
+    if (res.ok) {
+      await loadTeam();
+      return;
+    }
+    const data = await readJsonResponse<{ error?: string }>(res);
+    setMemberActionError(errorMessageFromBody(data, "Failed to remove member"));
+  }
+
+  async function promoteMember(userId: string, memberName: string) {
+    if (!confirm(`Make ${memberName} a team admin? They can manage members and Spotify.`)) {
+      return;
+    }
+    setMemberActionError(null);
+    const res = await fetch(`/api/teams/${teamId}/members`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, role: "ADMIN" }),
+    });
+    if (res.ok) {
+      await loadTeam();
+      return;
+    }
+    const data = await readJsonResponse<{ error?: string }>(res);
+    setMemberActionError(errorMessageFromBody(data, "Failed to update member role"));
+  }
+
+  async function demoteMember(userId: string) {
+    setMemberActionError(null);
+    const res = await fetch(`/api/teams/${teamId}/members`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, role: "MEMBER" }),
+    });
+    if (res.ok) {
+      await loadTeam();
+      return;
+    }
+    const data = await readJsonResponse<{ error?: string }>(res);
+    setMemberActionError(errorMessageFromBody(data, "Failed to update member role"));
+  }
+
+  async function transferOwnership(userId: string, memberName: string) {
+    if (
+      !confirm(
+        `Transfer team ownership to ${memberName}? You will become an admin and they will be the owner.`,
+      )
+    ) {
+      return;
+    }
+    setMemberActionError(null);
+    const res = await fetch(`/api/teams/${teamId}/ownership`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+    if (res.ok) {
+      await loadTeam();
+      return;
+    }
+    const data = await readJsonResponse<{ error?: string }>(res);
+    setMemberActionError(errorMessageFromBody(data, "Failed to transfer ownership"));
   }
 
   async function handleLeaveTeam() {
@@ -125,9 +340,8 @@ export default function TeamSettingsPage() {
 
   const currentUserId = authSession?.user?.id;
   const myMembership = team?.members.find((m) => m.user.id === currentUserId);
-  const isAdmin = myMembership?.role === "ADMIN";
-  const adminCount = team?.members.filter((m) => m.role === "ADMIN").length ?? 0;
-  const isOnlyAdmin = isAdmin && adminCount <= 1;
+  const isManager = myMembership ? isTeamManagerRole(myMembership.role) : false;
+  const isOwner = myMembership?.role === "OWNER";
 
   if (!initialized) {
     if (loading) return <TeamSettingsPageSkeleton />;
@@ -137,6 +351,7 @@ export default function TeamSettingsPage() {
   return (
     <div>
       <Breadcrumb
+        className="mb-4"
         items={[
           { label: "Teams", href: "/teams" },
           { label: team?.name ?? "Team" },
@@ -151,6 +366,30 @@ export default function TeamSettingsPage() {
         <>
           <h1 className="text-2xl font-semibold">{team.name}</h1>
           <p className="mt-1 text-sm text-zinc-500">Team members and access</p>
+
+          {spotifyFlash && (
+            <div
+              className={`mt-4 rounded-lg border p-3 text-sm ${
+                spotifyFlash.success
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-amber-200 bg-amber-50 text-amber-900"
+              }`}
+            >
+              {spotifyFlash.message}
+            </div>
+          )}
+
+          <section className="mt-6">
+            <h2 className="text-lg font-medium">Spotify</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              One shared Spotify account for importing playlists and playback during bingo
+              night.{" "}
+              {isManager
+                ? "As a team admin, you can connect or change it."
+                : "Only team admins can connect Spotify."}
+            </p>
+            <SpotifyConnectionCard teamId={teamId} className="mt-3" />
+          </section>
 
           <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/50">
             <p className="font-medium">Team ID for joining</p>
@@ -171,8 +410,20 @@ export default function TeamSettingsPage() {
             </div>
           </div>
 
+          {memberActionError && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+              {memberActionError}
+            </div>
+          )}
+
           <ul className="mt-8 space-y-2">
-            {team.members.map((member) => (
+            {team.members.map((member) => {
+              const showMemberMenu =
+                isManager &&
+                member.user.id !== currentUserId &&
+                (isOwner || member.role !== "OWNER");
+
+              return (
               <li
                 key={member.id}
                 className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
@@ -181,23 +432,48 @@ export default function TeamSettingsPage() {
                   <p className="font-medium">{member.user.name ?? member.user.email}</p>
                   <p className="text-sm text-zinc-500">{member.user.email}</p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-400">{formatTeamRoleLabel(member.role)}</span>
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => void removeMember(member.user.id, member.user.email)}
-                      className="text-sm text-red-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  )}
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="w-14 text-right text-xs text-zinc-400">
+                    {formatTeamRoleLabel(member.role)}
+                  </span>
+                  <div className="flex size-8 items-center justify-center">
+                    {showMemberMenu && (
+                      <MemberActionsMenu
+                        member={member}
+                        canTransfer={isOwner}
+                        canDemote={isOwner}
+                        onPromote={() =>
+                          runMenuAction(() =>
+                            promoteMember(
+                              member.user.id,
+                              member.user.name ?? member.user.email,
+                            ),
+                          )
+                        }
+                        onDemote={() =>
+                          runMenuAction(() => demoteMember(member.user.id))
+                        }
+                        onTransfer={() =>
+                          runMenuAction(() =>
+                            transferOwnership(
+                              member.user.id,
+                              member.user.name ?? member.user.email,
+                            ),
+                          )
+                        }
+                        onRemove={() =>
+                          runMenuAction(() => removeMember(member.user.id, member.user.email))
+                        }
+                      />
+                    )}
+                  </div>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
 
-          {myMembership && !isOnlyAdmin && (
+          {myMembership && !isOwner && (
             <section className="mt-12 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
               <h2 className="text-lg font-medium">Leave team</h2>
               <p className="mt-1 text-sm text-zinc-500">
@@ -217,7 +493,7 @@ export default function TeamSettingsPage() {
             </section>
           )}
 
-          {isOnlyAdmin && (
+          {isOwner && (
             <section className="mt-12 rounded-xl border border-red-200 p-4 dark:border-red-900/50">
               <h2 className="text-lg font-medium text-red-700 dark:text-red-400">Danger zone</h2>
               <p className="mt-1 text-sm text-zinc-500">
@@ -225,7 +501,7 @@ export default function TeamSettingsPage() {
                 {team._count.bingoSessions > 0
                   ? ` and its ${team._count.bingoSessions} bingo session${team._count.bingoSessions === 1 ? "" : "s"}`
                   : ""}
-                . All members will lose access.
+                . All members will lose access. Transfer ownership first if you want the team to continue without you.
               </p>
               <button
                 type="button"

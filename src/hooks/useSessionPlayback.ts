@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import { errorMessageFromBody, externalErrorFromBody } from "@/lib/api-errors";
+import { useCallback, useState } from "react";
+import { reportPlaybackError } from "@/lib/playback-client";
 import { readJsonResponse } from "@/lib/read-json-response";
 
 export interface SessionPlaybackState {
@@ -10,37 +10,32 @@ export interface SessionPlaybackState {
   item: { id: string } | null;
 }
 
-function applyRateLimitBackoff(
-  rateLimitedUntil: { current: number },
-  retryAfterSeconds?: number,
-) {
-  const waitMs = (retryAfterSeconds ?? 30) * 1000;
-  rateLimitedUntil.current = Date.now() + waitMs;
-}
-
 export function useSessionPlayback(sessionId: string) {
   const [playback, setPlayback] = useState<SessionPlaybackState | null>(null);
   const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
-  const rateLimitedUntil = useRef(0);
 
   const refreshPlayback = useCallback(async () => {
-    if (Date.now() < rateLimitedUntil.current) return;
+    if (isPlaybackRateLimited()) return;
 
     try {
       const res = await fetch(`/api/playback/${sessionId}?scope=player`);
       const json = await readJsonResponse<{ playback?: SessionPlaybackState | null }>(res);
 
-      if (res.status === 429) {
-        const external = externalErrorFromBody(json);
-        applyRateLimitBackoff(rateLimitedUntil, external?.retryAfterSeconds);
-        setRateLimitMessage(errorMessageFromBody(json, "Spotify rate limit exceeded"));
+      if (!res.ok) {
+        const message = reportPlaybackError(
+          res,
+          json,
+          "Spotify rate limit exceeded",
+          { toast: false },
+        );
+        if (res.status === 429) {
+          setRateLimitMessage(message);
+        }
         return;
       }
 
-      if (res.ok) {
-        setRateLimitMessage(null);
-        setPlayback(json.playback ?? null);
-      }
+      setRateLimitMessage(null);
+      setPlayback(json.playback ?? null);
     } catch {
       // Ignore transient poll failures.
     }

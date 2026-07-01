@@ -7,7 +7,10 @@ import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { PlaybackPageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { msToLabel } from "@/lib/waveform";
-import { errorMessageFromBody, externalErrorFromBody } from "@/lib/api-errors";
+import {
+  isPlaybackRateLimited,
+  reportPlaybackError,
+} from "@/lib/playback-client";
 import { readJsonResponse } from "@/lib/read-json-response";
 import { isWebPlayerDevice } from "@/lib/spotify-types";
 
@@ -22,9 +25,8 @@ interface TrackClip {
   startMs: number;
   endMs: number;
   playbackRange?: {
-    source: "vote" | "default";
-    proposerName?: string;
-    voteCount: number;
+    source: "saved" | "default";
+    editorName?: string;
   };
 }
 
@@ -68,10 +70,9 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
   const clipEndPauseRequested = useRef(false);
   const playbackGeneration = useRef(0);
   const clipPlayStartedAt = useRef(0);
-  const rateLimitedUntil = useRef(0);
 
   const loadState = useCallback(async (options?: { silent?: boolean; playerOnly?: boolean }) => {
-    if (Date.now() < rateLimitedUntil.current) {
+    if (isPlaybackRateLimited()) {
       return;
     }
 
@@ -91,11 +92,13 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
         error?: string;
       }>(res);
 
-      if (res.status === 429) {
-        const external = externalErrorFromBody(json);
-        const waitMs = (external?.retryAfterSeconds ?? 30) * 1000;
-        rateLimitedUntil.current = Date.now() + waitMs;
-        const message = errorMessageFromBody(json, "Spotify rate limit exceeded");
+      if (!res.ok) {
+        const message = reportPlaybackError(
+          res,
+          json,
+          "Failed to load playback",
+          { toast: !options?.silent },
+        );
         if (!options?.silent) {
           setError(message);
         }
@@ -104,8 +107,6 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
         }
         return;
       }
-
-      if (!res.ok) throw new Error(errorMessageFromBody(json, "Failed to load playback"));
 
       if (options?.playerOnly) {
         setData((prev) => (prev ? { ...prev, playback: json.playback } : prev));
@@ -180,9 +181,9 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
   const progressInClip =
     isCurrentTrack && playback.progress_ms != null
       ? Math.min(
-          Math.max(0, playback.progress_ms - currentClip.startMs),
-          clipDuration,
-        )
+        Math.max(0, playback.progress_ms - currentClip.startMs),
+        clipDuration,
+      )
       : 0;
   const progressPct = Math.min(100, (progressInClip / clipDuration) * 100);
 
@@ -235,9 +236,14 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
             action: "pause",
           }),
         });
+        const json = await readJsonResponse<{ error?: string }>(res);
         if (generationAtTrigger !== playbackGeneration.current) return;
-        if (res.ok) await loadState({ silent: true });
-        else clipEndPauseRequested.current = false;
+        if (!res.ok) {
+          reportPlaybackError(res, json, "Pause failed");
+          clipEndPauseRequested.current = false;
+          return;
+        }
+        await loadState({ silent: true });
       } catch {
         if (generationAtTrigger === playbackGeneration.current) {
           clipEndPauseRequested.current = false;
@@ -287,22 +293,26 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
         }),
       });
       const json = await readJsonResponse<{ error?: string; playback?: PlaybackState }>(res);
-      if (!res.ok) throw new Error(errorMessageFromBody(json, "Playback failed"));
+      if (!res.ok) {
+        setError(reportPlaybackError(res, json, "Playback failed"));
+        return;
+      }
       if (json.playback) {
         setData((prev) =>
           prev
             ? {
-                ...prev,
-                playback: json.playback!,
-                hasActiveDevice: true,
-              }
+              ...prev,
+              playback: json.playback!,
+              hasActiveDevice: true,
+            }
             : prev,
         );
       } else {
         await loadState({ silent: true });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Playback failed");
+      const message = err instanceof Error ? err.message : "Playback failed";
+      setError(message);
     } finally {
       setActionLoading(false);
     }
@@ -325,7 +335,10 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
         }),
       });
       const json = await readJsonResponse<{ error?: string }>(res);
-      if (!res.ok) throw new Error(errorMessageFromBody(json, "Pause failed"));
+      if (!res.ok) {
+        setError(reportPlaybackError(res, json, "Pause failed"));
+        return;
+      }
       await loadState({ silent: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pause failed");
@@ -447,11 +460,9 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
         <p className="text-zinc-500">{currentClip.artistName}</p>
         <p className="mt-2 text-sm text-zinc-500">
           Clip: {msToLabel(currentClip.startMs)} – {msToLabel(currentClip.endMs)}
-          {currentClip.playbackRange?.source === "vote" && (
+          {currentClip.playbackRange?.source === "saved" && (
             <span className="ml-2 text-emerald-600">
-              Team pick · {currentClip.playbackRange.proposerName} (
-              {currentClip.playbackRange.voteCount} vote
-              {currentClip.playbackRange.voteCount === 1 ? "" : "s"})
+              Saved clip · {currentClip.playbackRange.editorName}
             </span>
           )}
           {currentClip.playbackRange?.source === "default" && (

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/api-auth";
-import { clearActiveTeamCookie, getActiveTeamId } from "@/lib/active-team";
+import { clearPersistedActiveTeam, getActiveTeamId } from "@/lib/active-team";
 import { prisma } from "@/lib/db";
-import { requireTeamAdmin, requireTeamMember, teamAccessResponse } from "@/lib/team-auth";
+import { requireTeamManager, requireTeamMember, requireTeamOwner, teamAccessResponse } from "@/lib/team-auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -54,7 +54,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   try {
-    await requireTeamAdmin(id, session!.user!.id);
+    await requireTeamManager(id, session!.user!.id);
 
     const team = await prisma.team.update({
       where: { id },
@@ -77,14 +77,14 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
   try {
     const userId = session!.user!.id;
-    await requireTeamAdmin(id, userId);
+    await requireTeamOwner(id, userId);
 
     const activeTeamId = await getActiveTeamId(userId);
     await prisma.team.delete({ where: { id } });
 
     const response = NextResponse.json({ success: true });
     if (activeTeamId === id) {
-      clearActiveTeamCookie(response);
+      await clearPersistedActiveTeam(userId, response);
     }
     return response;
   } catch (err) {

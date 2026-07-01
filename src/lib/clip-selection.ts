@@ -1,89 +1,57 @@
-export interface ClipProposalLike {
-  id: string;
-  startMs: number;
-  endMs: number;
-  createdAt: Date;
-  user?: { name: string | null; email?: string };
-}
-
-export interface ClipVoteLike {
-  proposalId: string;
-}
-
 export interface DefaultClipLike {
   startMs: number;
   endMs: number;
 }
 
+export interface SavedClipVersionLike {
+  id: string;
+  startMs: number;
+  endMs: number;
+  createdAt: Date;
+  createdBy?: { name: string | null; email?: string };
+}
+
 export interface PlaybackRange {
   startMs: number;
   endMs: number;
-  proposalId?: string;
-  proposerName?: string;
-  voteCount: number;
-  source: "vote" | "default";
+  versionId?: string;
+  editorName?: string;
+  source: "saved" | "default";
 }
 
 export function resolvePlaybackRange(
   defaultClip: DefaultClipLike,
-  proposals: ClipProposalLike[],
-  votes: ClipVoteLike[],
+  currentVersion: SavedClipVersionLike | null | undefined,
 ): PlaybackRange {
-  if (votes.length === 0 || proposals.length === 0) {
+  if (!currentVersion) {
     return {
       startMs: defaultClip.startMs,
       endMs: defaultClip.endMs,
-      voteCount: 0,
       source: "default",
     };
   }
 
-  const voteCounts = new Map<string, number>();
-  for (const vote of votes) {
-    voteCounts.set(vote.proposalId, (voteCounts.get(vote.proposalId) ?? 0) + 1);
-  }
-
-  const votedProposals = proposals
-    .filter((p) => (voteCounts.get(p.id) ?? 0) > 0)
-    .map((p) => ({
-      proposal: p,
-      voteCount: voteCounts.get(p.id) ?? 0,
-    }));
-
-  if (votedProposals.length === 0) {
-    return {
-      startMs: defaultClip.startMs,
-      endMs: defaultClip.endMs,
-      voteCount: 0,
-      source: "default",
-    };
-  }
-
-  votedProposals.sort((a, b) => {
-    if (b.voteCount !== a.voteCount) return b.voteCount - a.voteCount;
-    return a.proposal.createdAt.getTime() - b.proposal.createdAt.getTime();
-  });
-
-  const winner = votedProposals[0];
-  const proposerName =
-    winner.proposal.user?.name ??
-    winner.proposal.user?.email?.split("@")[0] ??
+  const editorName =
+    currentVersion.createdBy?.name ??
+    currentVersion.createdBy?.email?.split("@")[0] ??
     "Team member";
 
   return {
-    startMs: winner.proposal.startMs,
-    endMs: winner.proposal.endMs,
-    proposalId: winner.proposal.id,
-    proposerName,
-    voteCount: winner.voteCount,
-    source: "vote",
+    startMs: currentVersion.startMs,
+    endMs: currentVersion.endMs,
+    versionId: currentVersion.id,
+    editorName,
+    source: "saved",
   };
 }
 
-export function resolveWinningProposalId(
-  proposals: ClipProposalLike[],
-  votes: ClipVoteLike[],
-): string | null {
-  const range = resolvePlaybackRange({ startMs: 0, endMs: 0 }, proposals, votes);
-  return range.proposalId ?? null;
+export function hasCustomClip(playbackRange: Pick<PlaybackRange, "source">): boolean {
+  return playbackRange.source === "saved";
+}
+
+export function getLatestVersion<T extends { createdAt: Date }>(versions: T[]): T | null {
+  if (versions.length === 0) return null;
+  return [...versions].sort(
+    (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+  )[0]!;
 }

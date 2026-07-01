@@ -51,9 +51,9 @@ async function refreshAccessToken(refreshToken: string): Promise<SpotifyTokenRes
   return response.json();
 }
 
-export async function getValidSpotifyAccessToken(userId: string): Promise<string> {
+export async function getValidSpotifyAccessToken(teamId: string): Promise<string> {
   const connection = await prisma.spotifyConnection.findUnique({
-    where: { userId },
+    where: { teamId },
   });
 
   if (!connection) {
@@ -70,7 +70,7 @@ export async function getValidSpotifyAccessToken(userId: string): Promise<string
 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
   await prisma.spotifyConnection.update({
-    where: { userId },
+    where: { teamId },
     data: {
       accessToken: encrypt(tokens.access_token),
       refreshToken: encrypt(tokens.refresh_token ?? refreshToken),
@@ -79,6 +79,16 @@ export async function getValidSpotifyAccessToken(userId: string): Promise<string
   });
 
   return tokens.access_token;
+}
+
+export async function requireTeamSpotifyConnection(teamId: string): Promise<void> {
+  const connection = await prisma.spotifyConnection.findUnique({
+    where: { teamId },
+    select: { id: true },
+  });
+  if (!connection) {
+    throw new SpotifyApiError("Spotify account not linked", 401);
+  }
 }
 
 async function readSpotifyError(response: Response): Promise<string> {
@@ -157,11 +167,11 @@ function parseRetryAfterHeader(header: string | null): number | undefined {
 }
 
 async function spotifyFetch<T>(
-  userId: string,
+  teamId: string,
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const accessToken = await getValidSpotifyAccessToken(userId);
+  const accessToken = await getValidSpotifyAccessToken(teamId);
   const method = (options.method ?? "GET").toUpperCase();
   const response = await fetch(`${SPOTIFY_API_BASE}${path}`, {
     ...options,
@@ -223,6 +233,27 @@ export async function exchangeSpotifyCode(
   return tokens;
 }
 
+export async function revokeSpotifyRefreshToken(refreshToken: string): Promise<void> {
+  const { clientId, clientSecret } = requireSpotifyConfig();
+  const body = new URLSearchParams({
+    token: refreshToken,
+    token_type_hint: "refresh_token",
+  });
+
+  const response = await fetch("https://accounts.spotify.com/api/token/revoke", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+    },
+    body,
+  });
+
+  if (!response.ok) {
+    throw new SpotifyApiError("Failed to revoke Spotify token", response.status);
+  }
+}
+
 export async function fetchSpotifyProfileWithToken(
   accessToken: string,
 ): Promise<SpotifyUserProfile> {
@@ -246,12 +277,12 @@ export async function fetchSpotifyProfileWithToken(
   return response.json();
 }
 
-export async function getSpotifyProfile(userId: string): Promise<SpotifyUserProfile> {
-  return spotifyFetch<SpotifyUserProfile>(userId, "/me");
+export async function getSpotifyProfile(teamId: string): Promise<SpotifyUserProfile> {
+  return spotifyFetch<SpotifyUserProfile>(teamId, "/me");
 }
 
 export async function getPlaylistTracks(
-  userId: string,
+  teamId: string,
   playlistId: string,
 ): Promise<SpotifyPlaylistTrackItem[]> {
   const items: SpotifyPlaylistTrackItem[] = [];
@@ -259,7 +290,7 @@ export async function getPlaylistTracks(
 
   while (path) {
     const currentPath: string = path;
-    const page = await spotifyFetch<SpotifyPlaylistItemsResponse>(userId, currentPath);
+    const page = await spotifyFetch<SpotifyPlaylistItemsResponse>(teamId, currentPath);
 
     for (const entry of page.items) {
       const track = entry.item ?? entry.track;
@@ -275,14 +306,14 @@ export async function getPlaylistTracks(
 }
 
 export async function getPlaylistInfo(
-  userId: string,
+  teamId: string,
   playlistId: string,
 ): Promise<{ id: string; name: string; imageUrl: string | null }> {
   const data = await spotifyFetch<{
     id: string;
     name: string;
     images?: { url: string }[];
-  }>(userId, `/playlists/${playlistId}?fields=id,name,images`);
+  }>(teamId, `/playlists/${playlistId}?fields=id,name,images`);
 
   return {
     id: data.id,
@@ -291,9 +322,9 @@ export async function getPlaylistInfo(
   };
 }
 
-export async function getPlaybackState(userId: string): Promise<SpotifyPlaybackState | null> {
+export async function getPlaybackState(teamId: string): Promise<SpotifyPlaybackState | null> {
   try {
-    const state = await spotifyFetch<SpotifyPlaybackState>(userId, "/me/player");
+    const state = await spotifyFetch<SpotifyPlaybackState>(teamId, "/me/player");
     return state ?? null;
   } catch (error) {
     if (error instanceof SpotifyApiError && error.status === 204) {
@@ -308,7 +339,7 @@ function trackIdFromUri(trackUri: string): string {
 }
 
 async function waitForPlaybackTrack(
-  userId: string,
+  teamId: string,
   trackId: string,
   attempts = 3,
   delayMs = 250,
@@ -318,7 +349,7 @@ async function waitForPlaybackTrack(
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     try {
-      const state = await getPlaybackState(userId);
+      const state = await getPlaybackState(teamId);
       if (state?.item?.id === trackId) {
         return;
       }
@@ -328,15 +359,15 @@ async function waitForPlaybackTrack(
   }
 }
 
-export async function getDevices(userId: string): Promise<SpotifyDevicesResponse> {
-  return spotifyFetch<SpotifyDevicesResponse>(userId, "/me/player/devices");
+export async function getDevices(teamId: string): Promise<SpotifyDevicesResponse> {
+  return spotifyFetch<SpotifyDevicesResponse>(teamId, "/me/player/devices");
 }
 
 async function resolvePlaybackDeviceId(
-  userId: string,
+  teamId: string,
   requestedDeviceId?: string,
 ): Promise<string | undefined> {
-  const { devices } = await getDevices(userId);
+  const { devices } = await getDevices(teamId);
   if (devices.length === 0) return undefined;
 
   if (requestedDeviceId) {
@@ -360,10 +391,10 @@ async function resolvePlaybackDeviceId(
 }
 
 async function requireConnectDevice(
-  userId: string,
+  teamId: string,
   deviceId: string,
 ): Promise<string> {
-  const { devices } = await getDevices(userId);
+  const { devices } = await getDevices(teamId);
   const device = devices.find((d) => d.id === deviceId);
   if (device && !isWebPlayerDevice(device.name)) {
     return deviceId;
@@ -383,14 +414,14 @@ async function requireConnectDevice(
 }
 
 export async function getTrack(
-  userId: string,
+  teamId: string,
   trackId: string,
 ): Promise<SpotifyTrackSummary> {
-  return spotifyFetch<SpotifyTrackSummary>(userId, `/tracks/${trackId}`);
+  return spotifyFetch<SpotifyTrackSummary>(teamId, `/tracks/${trackId}`);
 }
 
-async function assertTrackPlayable(userId: string, trackId: string): Promise<void> {
-  const track = await getTrack(userId, trackId);
+async function assertTrackPlayable(teamId: string, trackId: string): Promise<void> {
+  const track = await getTrack(teamId, trackId);
   const trackName = track.name ?? trackId;
   if (!isPlayableAudioTrack(track)) {
     throw new SpotifyApiError(
@@ -408,11 +439,11 @@ async function ignoreSpotifyError(err: unknown, ...statuses: number[]): Promise<
 }
 
 export async function transferPlayback(
-  userId: string,
+  teamId: string,
   deviceId: string,
   play = false,
 ): Promise<void> {
-  await spotifyFetch(userId, "/me/player", {
+  await spotifyFetch(teamId, "/me/player", {
     method: "PUT",
     body: JSON.stringify({
       device_ids: [deviceId],
@@ -422,13 +453,13 @@ export async function transferPlayback(
 }
 
 export async function playTrackAtPosition(
-  userId: string,
+  teamId: string,
   trackUri: string,
   positionMs: number,
   deviceId?: string,
 ): Promise<void> {
   const query = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : "";
-  await spotifyFetch(userId, `/me/player/play${query}`, {
+  await spotifyFetch(teamId, `/me/player/play${query}`, {
     method: "PUT",
     body: JSON.stringify({
       uris: [trackUri],
@@ -439,14 +470,14 @@ export async function playTrackAtPosition(
 
 /** Start or switch clip playback with fresh device resolution and playback verification. */
 export async function startClipPlayback(
-  userId: string,
+  teamId: string,
   trackUri: string,
   positionMs: number,
   deviceId?: string,
   options?: { skipPlayabilityCheck?: boolean },
 ): Promise<void> {
   const trackId = trackIdFromUri(trackUri);
-  let resolvedDeviceId = await resolvePlaybackDeviceId(userId, deviceId);
+  let resolvedDeviceId = await resolvePlaybackDeviceId(teamId, deviceId);
 
   if (!resolvedDeviceId) {
     throw new SpotifyApiError(
@@ -455,56 +486,56 @@ export async function startClipPlayback(
     );
   }
 
-  resolvedDeviceId = await requireConnectDevice(userId, resolvedDeviceId);
+  resolvedDeviceId = await requireConnectDevice(teamId, resolvedDeviceId);
   if (!options?.skipPlayabilityCheck) {
-    await assertTrackPlayable(userId, trackId);
+    await assertTrackPlayable(teamId, trackId);
   }
 
   try {
-    await playTrackAtPosition(userId, trackUri, positionMs, resolvedDeviceId);
+    await playTrackAtPosition(teamId, trackUri, positionMs, resolvedDeviceId);
   } catch (err) {
     if (!(err instanceof SpotifyApiError) || err.status !== 404) {
       throw err;
     }
     try {
-      await transferPlayback(userId, resolvedDeviceId, false);
+      await transferPlayback(teamId, resolvedDeviceId, false);
     } catch (transferErr) {
       await ignoreSpotifyError(transferErr, 404, 403);
     }
-    await playTrackAtPosition(userId, trackUri, positionMs, resolvedDeviceId);
+    await playTrackAtPosition(teamId, trackUri, positionMs, resolvedDeviceId);
   }
 
   try {
-    await waitForPlaybackTrack(userId, trackId);
+    await waitForPlaybackTrack(teamId, trackId);
   } catch {
     // Spotify may be slow to report state; play command already succeeded.
   }
 }
 
 export async function pauseActivePlayback(
-  userId: string,
+  teamId: string,
   deviceId?: string,
 ): Promise<void> {
-  const resolvedDeviceId = await resolvePlaybackDeviceId(userId, deviceId);
+  const resolvedDeviceId = await resolvePlaybackDeviceId(teamId, deviceId);
   if (!resolvedDeviceId) return;
 
   try {
-    await pausePlayback(userId, resolvedDeviceId);
+    await pausePlayback(teamId, resolvedDeviceId);
   } catch (err) {
     await ignoreSpotifyError(err, 404, 403);
   }
 }
 
-export async function pausePlayback(userId: string, deviceId?: string): Promise<void> {
+export async function pausePlayback(teamId: string, deviceId?: string): Promise<void> {
   const query = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : "";
-  await spotifyFetch(userId, `/me/player/pause${query}`, { method: "PUT" });
+  await spotifyFetch(teamId, `/me/player/pause${query}`, { method: "PUT" });
 }
 
 export async function getAudioAnalysis(
-  userId: string,
+  teamId: string,
   trackId: string,
 ): Promise<SpotifyAudioAnalysis> {
-  return spotifyFetch<SpotifyAudioAnalysis>(userId, `/audio-analysis/${trackId}`);
+  return spotifyFetch<SpotifyAudioAnalysis>(teamId, `/audio-analysis/${trackId}`);
 }
 
 export function asSpotifyApiError(err: unknown): SpotifyApiError | null {

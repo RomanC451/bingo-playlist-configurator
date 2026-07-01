@@ -1,34 +1,72 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, MoreVertical, Trash2 } from "lucide-react";
+import { ClipVersionReactions } from "@/components/ClipVersionReactions";
+import { NeedsAttentionButton } from "@/components/NeedsAttentionButton";
+import {
+  SessionTrackNav,
+  SessionTrackNavSkeleton,
+  type SessionTrackNavItem,
+} from "@/components/SessionTrackNav";
+import { TrackPageLayout } from "@/components/TrackPageLayout";
 import { Breadcrumb } from "@/components/Breadcrumb";
-import { Button } from "@/components/ui/button";
-import { WaveformEditor } from "@/components/WaveformEditor";
-import type { PlaybackState } from "@/components/WaveformEditor";
+import { Button, buttonClassName } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { WaveformEditor, ClipPlaybackButtons, type PlaybackState } from "@/components/WaveformEditor";
 import { useSessionPlayback } from "@/hooks/useSessionPlayback";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { TrackPageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
-import { readJsonResponse } from "@/lib/read-json-response";
 import {
-  featuredSectionTitle,
-  resolveTrackProposalLayout,
-  type LayoutProposal,
-} from "@/lib/track-proposal-layout";
+  useUnsavedLeaveGuard,
+  type LeaveDestination,
+} from "@/hooks/useUnsavedLeaveGuard";
+import { readJsonResponse } from "@/lib/read-json-response";
+import type { ClipReactionValue, VersionReactions } from "@/lib/clip-reactions";
+import type { AttentionFlaggedBy } from "@/lib/track-attention";
+import { errorToast } from "@/lib/error-toast";
 import { msToLabel } from "@/lib/waveform";
+import { cn } from "@/lib/utils";
 
-interface Proposal {
+function BackToTracksLink({
+  sessionId,
+  onNavigate,
+}: {
+  sessionId: string;
+  onNavigate?: (href: string) => boolean;
+}) {
+  const href = `/sessions/${sessionId}/edit`;
+  return (
+    <Link
+      href={href}
+      onClick={(event) => {
+        if (onNavigate && !onNavigate(href)) {
+          event.preventDefault();
+        }
+      }}
+      className={cn(
+        buttonClassName({ variant: "outline", size: "sm" }),
+        "shrink-0 gap-1.5 border-primary/50 bg-primary/10 font-medium text-primary hover:bg-primary/15",
+      )}
+    >
+      <ArrowLeft className="size-4" aria-hidden="true" />
+      Back to tracks
+    </Link>
+  );
+}
+
+interface ClipVersion {
   id: string;
-  userId: string;
-  userName: string;
   startMs: number;
   endMs: number;
-  voteCount: number;
-  isWinner: boolean;
-  isMine: boolean;
   createdAt: string;
+  createdByUserId: string;
+  createdByName: string;
+  isCurrent: boolean;
+  reactions: VersionReactions;
 }
 
 interface TrackDetail {
@@ -47,475 +85,871 @@ interface TrackDetail {
   playbackRange: {
     startMs: number;
     endMs: number;
-    proposerName?: string;
-    voteCount: number;
-    source: "vote" | "default";
-    proposalId?: string;
+    editorName?: string;
+    source: "saved" | "default";
+    versionId?: string;
   };
-  proposals: Proposal[];
-  userVote: { proposalId: string } | null;
-  userProposal: { id: string; startMs: number; endMs: number } | null;
+  currentVersion: ClipVersion | null;
+  versions: ClipVersion[];
+  currentUserId: string;
+  needsAttention: boolean;
+  attentionFlaggedBy: AttentionFlaggedBy | null;
+  attentionComment: string | null;
 }
 
-function StarIcon({
-  filled,
-  className = "h-5 w-5",
-}: {
-  filled: boolean;
-  className?: string;
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={`${className} ${filled ? "fill-amber-400 text-amber-400" : "fill-none stroke-current text-zinc-400"}`}
-      strokeWidth={filled ? 0 : 1.5}
-      aria-hidden
-    >
-      <path
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-      />
-    </svg>
-  );
+function savedRange(detail: TrackDetail) {
+  if (detail.currentVersion) {
+    return {
+      startMs: detail.currentVersion.startMs,
+      endMs: detail.currentVersion.endMs,
+    };
+  }
+  return {
+    startMs: detail.track.defaultStartMs,
+    endMs: detail.track.defaultEndMs,
+  };
 }
 
-function VoteStar({
-  proposal,
-  userVote,
-  voteLoading,
-  onVote,
-  onClearVote,
-}: {
-  proposal: Pick<LayoutProposal, "id">;
-  userVote: { proposalId: string } | null;
-  voteLoading: string | null;
-  onVote: (proposalId: string) => void;
-  onClearVote: () => void;
-}) {
-  const isVoted = userVote?.proposalId === proposal.id;
-  const loading =
-    voteLoading !== null &&
-    (voteLoading === "clear" ? isVoted : voteLoading === proposal.id);
-
-  return (
-    <button
-      type="button"
-      disabled={voteLoading !== null}
-      onClick={() => void (isVoted ? onClearVote() : onVote(proposal.id))}
-      aria-label={isVoted ? "Remove vote" : "Vote for this proposal"}
-      title={isVoted ? "Remove vote" : "Vote for this proposal"}
-      className="shrink-0 rounded-lg p-1 hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
-    >
-      {loading ? (
-        <span className="flex h-5 w-5 items-center justify-center text-xs text-zinc-400">…</span>
-      ) : (
-        <StarIcon filled={isVoted} />
-      )}
-    </button>
-  );
+function rangesEqual(
+  a: { startMs: number; endMs: number },
+  b: { startMs: number; endMs: number },
+) {
+  return a.startMs === b.startMs && a.endMs === b.endMs;
 }
 
-function SectionHeading({ title }: { title: string }) {
-  return <h2 className="mb-3 text-lg font-medium">{title}</h2>;
+function formatVersionDate(iso: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(iso));
 }
 
-function ProposalCard({
-  proposal,
+function VersionHistoryItem({
+  version,
   track,
   sessionId,
   clipId,
-  userVote,
-  voteLoading,
-  onVote,
-  onClearVote,
-  previewKey,
+  onLoad,
+  onDelete,
+  deleteLoading,
   activePreviewKey,
   onPreviewActive,
   playback,
   onPlaybackChange,
-  readOnly = true,
-  compact = false,
-  showMeta,
-  showVote = false,
-  saveUrl,
-  onUpdate,
-  albumArtUrl,
-  onRemove,
-  removeLoading = false,
+  className,
 }: {
-  proposal: LayoutProposal;
+  version: ClipVersion;
   track: TrackDetail["track"];
   sessionId: string;
   clipId: string;
-  userVote: { proposalId: string } | null;
-  voteLoading: string | null;
-  onVote: (proposalId: string) => void;
-  onClearVote: () => void;
-  previewKey: string;
+  onLoad: () => void;
+  onDelete: () => void;
+  deleteLoading: boolean;
   activePreviewKey: string | null;
   onPreviewActive: (key: string) => void;
   playback: PlaybackState | null;
   onPlaybackChange: React.Dispatch<React.SetStateAction<PlaybackState | null>>;
-  readOnly?: boolean;
-  compact?: boolean;
-  showMeta?: boolean;
-  showVote?: boolean;
-  saveUrl?: string;
-  onUpdate?: (startMs: number, endMs: number) => void;
-  albumArtUrl?: string | null;
-  onRemove?: () => void;
-  removeLoading?: boolean;
+  className?: string;
 }) {
-  const showProposalMeta = showMeta ?? !proposal.isDefault;
-  const showCardHeader = showProposalMeta || onRemove || showVote;
+  const previewKey = `version-${version.id}`;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handlePointerDown(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [menuOpen]);
 
   return (
-    <div
-      className={`rounded-xl border p-3 sm:p-4 ${
-        proposal.isWinner
-          ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30"
-          : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
-      }`}
-    >
-      {showCardHeader && (
-        <div className="mb-3 flex items-start gap-2">
-          {showProposalMeta ? (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{proposal.userName}</p>
-              <p className="text-xs text-zinc-500">
-                {msToLabel(proposal.startMs)} – {msToLabel(proposal.endMs)}
-              </p>
-              <p className="mt-0.5 text-xs text-zinc-400">
-                {proposal.voteCount} vote{proposal.voteCount === 1 ? "" : "s"}
-                {proposal.isWinner && (
-                  <span className="ml-1.5 text-emerald-600">· Team pick</span>
-                )}
-              </p>
+    <li className={className}>
+      <div
+        className={cn(
+          "rounded-lg border p-3",
+          version.isCurrent
+            ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30"
+            : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950",
+        )}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-medium">{version.createdByName}</p>
+              {version.isCurrent && (
+                <span className="text-xs font-medium text-emerald-600">Current</span>
+              )}
             </div>
-          ) : (
-            <div className="flex-1" />
-          )}
-          <div className="flex shrink-0 items-center gap-1">
-            {onRemove && (
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {formatVersionDate(version.createdAt)}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {msToLabel(version.startMs)} – {msToLabel(version.endMs)}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <ClipPlaybackButtons
+              sessionId={sessionId}
+              clipId={clipId}
+              startMs={version.startMs}
+              endMs={version.endMs}
+              previewKey={previewKey}
+              activePreviewKey={activePreviewKey}
+              onPreviewActive={onPreviewActive}
+              playback={playback}
+              onPlaybackChange={onPlaybackChange}
+            />
+            <div ref={menuRef} className="relative">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                disabled={removeLoading}
-                onClick={() => void onRemove()}
-                aria-label="Remove proposal"
-                title="Remove proposal"
-                className="text-muted-foreground hover:text-destructive"
+                aria-label="Version actions"
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                disabled={deleteLoading}
+                onClick={() => setMenuOpen((open) => !open)}
               >
-                <Trash2 className="size-4" aria-hidden="true" />
+                <MoreVertical className="size-4" aria-hidden="true" />
               </Button>
-            )}
-            {showVote && (
-              <VoteStar
-                proposal={proposal}
-                userVote={userVote}
-                voteLoading={voteLoading}
-                onVote={onVote}
-                onClearVote={onClearVote}
-              />
-            )}
+              {menuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-10 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-secondary"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onLoad();
+                    }}
+                  >
+                    Load into editor
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      )}
-      <WaveformEditor
-        readOnly={readOnly}
-        compact={compact}
-        clipId={clipId}
+
+        <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <WaveformEditor
+            readOnly
+            compact
+            hidePlaybackControls
+            clipId={clipId}
+            sessionId={sessionId}
+            trackId={track.spotifyTrackId}
+            trackName={track.trackName}
+            artistName={track.artistName}
+            durationMs={track.durationMs}
+            startMs={version.startMs}
+            endMs={version.endMs}
+            previewKey={previewKey}
+            activePreviewKey={activePreviewKey}
+            onPreviewActive={onPreviewActive}
+            playback={playback}
+            onPlaybackChange={onPlaybackChange}
+          />
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function VersionHistoryList({
+  versions,
+  collapsed,
+  track,
+  sessionId,
+  clipId,
+  onLoad,
+  onDelete,
+  deletingVersionId,
+  activePreviewKey,
+  onPreviewActive,
+  playback,
+  onPlaybackChange,
+  onExpand,
+}: {
+  versions: ClipVersion[];
+  collapsed: boolean;
+  track: TrackDetail["track"];
+  sessionId: string;
+  clipId: string;
+  onLoad: (version: ClipVersion) => void;
+  onDelete: (versionId: string) => void;
+  deletingVersionId: string | null;
+  activePreviewKey: string | null;
+  onPreviewActive: (key: string) => void;
+  playback: PlaybackState | null;
+  onPlaybackChange: React.Dispatch<React.SetStateAction<PlaybackState | null>>;
+  onExpand: () => void;
+}) {
+  function renderItem(version: ClipVersion, className?: string) {
+    return (
+      <VersionHistoryItem
+        key={version.id}
+        version={version}
+        track={track}
         sessionId={sessionId}
-        saveUrl={saveUrl}
-        onUpdate={onUpdate}
-        trackId={track.spotifyTrackId}
-        trackName={track.trackName}
-        artistName={track.artistName}
-        albumArtUrl={albumArtUrl}
-        durationMs={track.durationMs}
-        startMs={proposal.startMs}
-        endMs={proposal.endMs}
-        previewKey={previewKey}
+        clipId={clipId}
+        onLoad={() => onLoad(version)}
+        onDelete={() => onDelete(version.id)}
+        deleteLoading={deletingVersionId === version.id}
         activePreviewKey={activePreviewKey}
         onPreviewActive={onPreviewActive}
         playback={playback}
         onPlaybackChange={onPlaybackChange}
+        className={className}
       />
+    );
+  }
+
+  if (!collapsed) {
+    return <ul className="space-y-3">{versions.map((version) => renderItem(version))}</ul>;
+  }
+
+  return (
+    <div>
+      <ul>{renderItem(versions[0])}</ul>
+      <div className="relative mt-2 h-[4.75rem] overflow-hidden">
+        <div className="pointer-events-none select-none opacity-80 blur-[2px]">
+          <ul className="-mt-1">{renderItem(versions[1])}</ul>
+        </div>
+        <div className="absolute inset-0 z-20 flex items-center justify-center">
+          <button
+            type="button"
+            className="text-sm font-medium text-primary hover:underline"
+            onClick={onExpand}
+          >
+            Show all ({versions.length})
+          </button>
+        </div>
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-gradient-to-t from-background from-20% to-transparent"
+          aria-hidden
+        />
+      </div>
+    </div>
+  );
+}
+
+function UnsavedChangesDialog({
+  open,
+  saving,
+  onCancel,
+  onDiscard,
+  onSave,
+}: {
+  open: boolean;
+  saving: boolean;
+  onCancel: () => void;
+  onDiscard: () => void;
+  onSave: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="unsaved-changes-title"
+        className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg"
+      >
+        <h2 id="unsaved-changes-title" className="text-lg font-semibold">
+          Unsaved changes
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          You have unsaved clip changes. Save them or discard them before leaving.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+            Stay on page
+          </Button>
+          <Button type="button" variant="outline" onClick={onDiscard} disabled={saving}>
+            Discard changes
+          </Button>
+          <Button type="button" onClick={onSave} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function TrackEditPage() {
   const params = useParams();
+  const router = useRouter();
   const sessionId = params.id as string;
   const clipId = params.clipId as string;
   useRecordSessionWork(sessionId);
+
   const [detail, setDetail] = useState<TrackDetail | null>(null);
+  const [sessionTracks, setSessionTracks] = useState<SessionTrackNavItem[]>([]);
+  const [tracksReady, setTracksReady] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const { loading, begin, end } = useDelayedLoading();
   const [error, setError] = useState<string | null>(null);
-  const [voteLoading, setVoteLoading] = useState<string | null>(null);
-  const [removeLoading, setRemoveLoading] = useState(false);
-  const [activePreviewKey, setActivePreviewKey] = useState<string | null>(null);
+  const [draftStartMs, setDraftStartMs] = useState(0);
+  const [draftEndMs, setDraftEndMs] = useState(0);
+  const [draftInitialized, setDraftInitialized] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [deletingVersionId, setDeletingVersionId] = useState<string | null>(null);
+  const [reactionLoadingVersionId, setReactionLoadingVersionId] = useState<string | null>(null);
+  const [attentionLoading, setAttentionLoading] = useState(false);
+  const [pendingHref, setPendingHref] = useState<LeaveDestination | null>(null);
+  const [activePreviewKey, setActivePreviewKey] = useState<string | null>("editor");
+  const [showAllVersions, setShowAllVersions] = useState(false);
   const { playback, setPlayback, rateLimitMessage } = useSessionPlayback(sessionId);
 
-  const loadDetail = useCallback(async () => {
-    begin();
-    try {
-      const res = await fetch(`/api/sessions/${sessionId}/tracks/${clipId}`);
-      const data = await readJsonResponse<{ error?: string } & TrackDetail>(res);
-      if (!res.ok) {
-        setError(data.error ?? "Failed to load track");
-        setDetail(null);
-      } else {
-        setDetail(data);
-        setError(null);
-      }
-      setInitialized(true);
-    } catch {
-      setError("Failed to load track");
-      setDetail(null);
-      setInitialized(true);
-    } finally {
-      end();
+  const fetchDetail = useCallback(async () => {
+    const res = await fetch(`/api/sessions/${sessionId}/tracks/${clipId}`);
+    const data = await readJsonResponse<{ error?: string } & TrackDetail>(res);
+    return { res, data };
+  }, [clipId, sessionId]);
+
+  const fetchSessionTracks = useCallback(async () => {
+    const res = await fetch(`/api/sessions/${sessionId}`);
+    const data = await readJsonResponse<{ tracks?: SessionTrackNavItem[] }>(res);
+    if (res.ok && data.tracks) {
+      return data.tracks;
     }
-  }, [begin, clipId, end, sessionId]);
+    return [];
+  }, [sessionId]);
 
   useEffect(() => {
-    void loadDetail();
-  }, [loadDetail]);
+    let cancelled = false;
 
-  function handleProposalUpdate(startMs: number, endMs: number) {
-    setDetail((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        userProposal: prev.userProposal
-          ? { ...prev.userProposal, startMs, endMs }
-          : { id: "pending", startMs, endMs },
-        proposals: prev.proposals.map((p) =>
-          p.isMine ? { ...p, startMs, endMs } : p,
-        ),
-      };
-    });
-    void loadDetail();
-  }
+    setInitialized(false);
+    setTracksReady(false);
+    setDraftInitialized(false);
+    setError(null);
+    begin();
 
-  async function voteFor(proposalId: string) {
-    setVoteLoading(proposalId);
-    try {
-      const res = await fetch(
-        `/api/sessions/${sessionId}/tracks/${clipId}/vote`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ proposalId }),
-        },
-      );
-      if (res.ok) {
-        setDetail(await readJsonResponse(res));
+    async function loadPage() {
+      try {
+        const [detailResult, tracks] = await Promise.all([
+          fetchDetail(),
+          fetchSessionTracks(),
+        ]);
+        if (cancelled) return;
+
+        setSessionTracks(tracks);
+        setTracksReady(true);
+
+        const { res, data } = detailResult;
+        if (!res.ok) {
+          setError(data.error ?? "Failed to load track");
+          setDetail(null);
+        } else {
+          setDetail(data);
+          setError(null);
+        }
+        setInitialized(true);
+      } catch {
+        if (!cancelled) {
+          setError("Failed to load track");
+          setDetail(null);
+          setInitialized(true);
+          setTracksReady(true);
+        }
+      } finally {
+        if (!cancelled) {
+          end();
+        }
       }
-    } finally {
-      setVoteLoading(null);
     }
-  }
 
-  async function clearVote() {
-    setVoteLoading("clear");
-    try {
-      const res = await fetch(
-        `/api/sessions/${sessionId}/tracks/${clipId}/vote`,
-        { method: "DELETE" },
-      );
-      if (res.ok) {
-        setDetail(await readJsonResponse(res));
-      }
-    } finally {
-      setVoteLoading(null);
-    }
-  }
+    void loadPage();
 
-  async function removeProposal() {
-    setRemoveLoading(true);
-    try {
-      const res = await fetch(
-        `/api/sessions/${sessionId}/tracks/${clipId}/proposal`,
-        { method: "DELETE" },
-      );
-      if (res.ok) {
-        setDetail(await readJsonResponse(res));
-      }
-    } finally {
-      setRemoveLoading(false);
-    }
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, [begin, end, fetchDetail, fetchSessionTracks]);
 
-  const layout = useMemo(() => {
-    if (!detail) return null;
-    return resolveTrackProposalLayout(
-      detail.track,
-      detail.playbackRange,
-      detail.proposals,
+  useEffect(() => {
+    setActivePreviewKey("editor");
+  }, [clipId]);
+
+  useEffect(() => {
+    setShowAllVersions(false);
+  }, [clipId]);
+
+  useEffect(() => {
+    if (!detail) return;
+    const range = savedRange(detail);
+    setDraftStartMs(range.startMs);
+    setDraftEndMs(range.endMs);
+    setDraftInitialized(true);
+  }, [detail, clipId]);
+
+  const saved = useMemo(
+    () => (detail ? savedRange(detail) : { startMs: 0, endMs: 0 }),
+    [detail],
+  );
+
+  const isDirty =
+    draftInitialized &&
+    detail != null &&
+    !rangesEqual(
+      { startMs: draftStartMs, endMs: draftEndMs },
+      saved,
     );
-  }, [detail]);
 
-  if (!initialized) {
-    if (loading) return <TrackPageSkeleton />;
+  const onLeaveAttempt = useCallback((destination: LeaveDestination) => {
+    setPendingHref(destination);
+  }, []);
+
+  const { runHistoryLeave } = useUnsavedLeaveGuard(isDirty, onLeaveAttempt);
+
+  const finishLeave = useCallback(
+    (destination: LeaveDestination) => {
+      if (destination === "back") {
+        runHistoryLeave(() => window.history.go(-2));
+        return;
+      }
+      router.push(destination);
+    },
+    [router, runHistoryLeave],
+  );
+
+  const saveVersion = useCallback(
+    async (startMs: number, endMs: number) => {
+      setSaveLoading(true);
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/tracks/${clipId}/proposal`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ startMs, endMs }),
+          },
+        );
+        const data = await readJsonResponse<{ error?: string } & TrackDetail>(res);
+        if (!res.ok) {
+          throw new Error(data.error ?? "Failed to save");
+        }
+        setDetail(data);
+        const tracks = await fetchSessionTracks();
+        setSessionTracks(tracks);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        setSaveLoading(false);
+      }
+    },
+    [clipId, fetchSessionTracks, sessionId],
+  );
+
+  const revertDraft = useCallback(() => {
+    setDraftStartMs(saved.startMs);
+    setDraftEndMs(saved.endMs);
+  }, [saved.endMs, saved.startMs]);
+
+  const loadVersionIntoEditor = useCallback((version: ClipVersion) => {
+    setDraftStartMs(version.startMs);
+    setDraftEndMs(version.endMs);
+    setActivePreviewKey("editor");
+  }, []);
+
+  const deleteVersion = useCallback(
+    async (versionId: string) => {
+      setDeletingVersionId(versionId);
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/tracks/${clipId}/proposal/${versionId}`,
+          { method: "DELETE" },
+        );
+        const data = await readJsonResponse<{ error?: string } & TrackDetail>(res);
+        if (!res.ok) {
+          throw new Error(data.error ?? "Failed to delete version");
+        }
+        setDetail(data);
+        const tracks = await fetchSessionTracks();
+        setSessionTracks(tracks);
+        if (activePreviewKey === `version-${versionId}`) {
+          setActivePreviewKey("editor");
+        }
+      } catch {
+        // Keep the list unchanged if delete fails.
+      } finally {
+        setDeletingVersionId(null);
+      }
+    },
+    [activePreviewKey, clipId, fetchSessionTracks, sessionId],
+  );
+
+  const reactToVersion = useCallback(
+    async (versionId: string, reaction: ClipReactionValue) => {
+      setReactionLoadingVersionId(versionId);
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/tracks/${clipId}/versions/${versionId}/reaction`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reaction }),
+          },
+        );
+        const data = await readJsonResponse<{ error?: string } & TrackDetail>(res);
+        if (!res.ok) {
+          errorToast(data.error ?? "Failed to save reaction");
+          return;
+        }
+        setDetail(data);
+      } catch {
+        errorToast("Failed to save reaction");
+      } finally {
+        setReactionLoadingVersionId(null);
+      }
+    },
+    [clipId, sessionId],
+  );
+
+  const flagNeedsAttention = useCallback(
+    async (comment: string) => {
+      setAttentionLoading(true);
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/tracks/${clipId}/attention`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ needsAttention: true, comment }),
+          },
+        );
+        const data = await readJsonResponse<{ error?: string } & TrackDetail>(res);
+        if (!res.ok) {
+          errorToast(data.error ?? "Failed to update attention flag");
+          return false;
+        }
+        setDetail(data);
+        const tracks = await fetchSessionTracks();
+        setSessionTracks(tracks);
+        return true;
+      } catch {
+        errorToast("Failed to update attention flag");
+        return false;
+      } finally {
+        setAttentionLoading(false);
+      }
+    },
+    [clipId, fetchSessionTracks, sessionId],
+  );
+
+  const clearNeedsAttention = useCallback(
+    async () => {
+      setAttentionLoading(true);
+      try {
+        const res = await fetch(
+          `/api/sessions/${sessionId}/tracks/${clipId}/attention`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ needsAttention: false }),
+          },
+        );
+        const data = await readJsonResponse<{ error?: string } & TrackDetail>(res);
+        if (!res.ok) {
+          errorToast(data.error ?? "Failed to update attention flag");
+          return;
+        }
+        setDetail(data);
+        const tracks = await fetchSessionTracks();
+        setSessionTracks(tracks);
+      } catch {
+        errorToast("Failed to update attention flag");
+      } finally {
+        setAttentionLoading(false);
+      }
+    },
+    [clipId, fetchSessionTracks, sessionId],
+  );
+
+  const requestNavigation = useCallback(
+    (href: string) => {
+      if (!isDirty) {
+        return true;
+      }
+      setPendingHref(href);
+      return false;
+    },
+    [isDirty],
+  );
+
+  const handleDialogCancel = () => setPendingHref(null);
+
+  const handleDialogDiscard = () => {
+    revertDraft();
+    const destination = pendingHref;
+    setPendingHref(null);
+    if (destination) {
+      finishLeave(destination);
+    }
+  };
+
+  const handleDialogSave = async () => {
+    const destination = pendingHref;
+    const ok = await saveVersion(draftStartMs, draftEndMs);
+    if (!ok) return;
+    setPendingHref(null);
+    if (destination) {
+      finishLeave(destination);
+    }
+  };
+
+  function renderTrackNav(showSkeletonWhenEmpty: boolean) {
+    if (sessionTracks.length > 0) {
+      return (
+        <SessionTrackNav
+          sessionId={sessionId}
+          currentTrackId={clipId}
+          tracks={sessionTracks}
+          onBeforeNavigate={requestNavigation}
+        />
+      );
+    }
+
+    if (showSkeletonWhenEmpty) {
+      return <SessionTrackNavSkeleton />;
+    }
+
     return null;
   }
 
-  if (error || !detail || !layout) {
+  function renderTrackToolbarSkeleton() {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-        {error ?? "Track not found"}
+      <div className="mb-4 flex h-8 items-center justify-between gap-3">
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="h-8 w-32 rounded-lg" />
       </div>
     );
   }
 
-  const { track, playbackRange, userProposal } = detail;
-  const { featured, teamSidebar, showYourProposal } = layout;
-  const editorStart = userProposal?.startMs ?? track.defaultStartMs;
-  const editorEnd = userProposal?.endMs ?? track.defaultEndMs;
+  const pageReady = initialized && tracksReady;
+  const trackNav = renderTrackNav(!tracksReady);
 
-  const sharedProposalProps = {
-    track,
-    sessionId,
-    clipId,
-    userVote: detail.userVote,
-    voteLoading,
-    onVote: voteFor,
-    onClearVote: clearVote,
-    activePreviewKey,
-    onPreviewActive: setActivePreviewKey,
-    playback,
-    onPlaybackChange: setPlayback,
-  };
+  if (!pageReady) {
+    if (loading) {
+      return (
+        <TrackPageLayout nav={trackNav}>
+          {renderTrackToolbarSkeleton()}
+          <TrackPageSkeleton contentOnly />
+        </TrackPageLayout>
+      );
+    }
+    return null;
+  }
 
-  const featuredIsEditable = featured.isMine && !featured.isDefault;
-  const removeProposalHandler = userProposal ? () => void removeProposal() : undefined;
+  if (error || !detail) {
+    return (
+      <TrackPageLayout nav={trackNav}>
+        <div className="mb-4 flex h-8 items-center justify-between gap-3">
+          <Breadcrumb
+            className="h-8 min-w-0 flex-1"
+            items={[
+              { label: "Bingo sessions", href: "/sessions" },
+              { label: "Session", href: `/sessions/${sessionId}/edit` },
+            ]}
+          />
+          <BackToTracksLink sessionId={sessionId} onNavigate={requestNavigation} />
+        </div>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
+          {error ?? "Track not found"}
+        </div>
+      </TrackPageLayout>
+    );
+  }
+
+  const { track, playbackRange, versions } = detail;
+  const hasSavedVersion = detail.currentVersion != null;
+  const historyCollapsed = !showAllVersions && versions.length > 1;
 
   return (
     <div>
-      <Breadcrumb
-        items={[
-          { label: "Bingo sessions", href: "/sessions" },
-          {
-            label: detail.sessionName,
-            href: `/sessions/${sessionId}/edit`,
-          },
-          { label: track.trackName },
-        ]}
+      <UnsavedChangesDialog
+        open={pendingHref != null}
+        saving={saveLoading}
+        onCancel={handleDialogCancel}
+        onDiscard={handleDialogDiscard}
+        onSave={() => void handleDialogSave()}
       />
 
-      <div>
-        <p className="text-sm text-zinc-500">Track {track.position + 1}</p>
-        <h1 className="text-2xl font-semibold">{track.trackName}</h1>
-        <p className="text-zinc-500">{track.artistName}</p>
-        {playbackRange.source === "vote" ? (
-          <p className="mt-2 text-sm text-zinc-500">
-            Team plays{" "}
-            <span className="text-zinc-700 dark:text-zinc-300">
-              {msToLabel(playbackRange.startMs)} – {msToLabel(playbackRange.endMs)}
-            </span>
-            {" · "}
-            {playbackRange.proposerName}
-            {" · "}
-            {playbackRange.voteCount}
-            <StarIcon filled className="ml-0.5 inline h-3.5 w-3.5 align-text-bottom" />
-          </p>
-        ) : featured.isDefault ? (
-          <p className="mt-2 text-sm text-zinc-500">
-            Playing the default clip — propose your own range below
-          </p>
-        ) : (
-          <p className="mt-2 text-sm text-zinc-500">
-            Featured proposal from {featured.userName} — star a proposal to pick what the team plays
-          </p>
-        )}
-      </div>
-
-      {rateLimitMessage && (
-        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-          {rateLimitMessage}
-        </div>
-      )}
-
-      <div
-        className={`mt-8 grid gap-8 ${teamSidebar.length > 0 ? "lg:grid-cols-[minmax(0,1fr)_min(22rem,32%)]" : ""}`}
-      >
-        <div className="min-w-0 space-y-8">
-          <section>
-            <SectionHeading title={featuredSectionTitle(featured)} />
-            <ProposalCard
-              {...sharedProposalProps}
-              proposal={featured}
-              previewKey="featured"
-              readOnly={!featuredIsEditable}
-              showMeta={!featured.isDefault}
-              showVote={!featured.isDefault && !featured.isMine}
-              onRemove={featuredIsEditable ? removeProposalHandler : undefined}
-              removeLoading={removeLoading}
-              saveUrl={
-                featuredIsEditable
-                  ? `/api/sessions/${sessionId}/tracks/${clipId}/proposal`
-                  : undefined
-              }
-              onUpdate={featuredIsEditable ? handleProposalUpdate : undefined}
-              albumArtUrl={featured.isDefault || featuredIsEditable ? track.albumArtUrl : undefined}
+      <TrackPageLayout nav={trackNav}>
+        <div className="mb-4 flex h-8 items-center justify-between gap-3">
+            <Breadcrumb
+              className="h-8 min-w-0 flex-1"
+              items={[
+                { label: "Bingo sessions", href: "/sessions" },
+                {
+                  label: detail.sessionName,
+                  href: `/sessions/${sessionId}/edit`,
+                },
+                { label: track.trackName },
+              ]}
             />
-          </section>
+            <BackToTracksLink sessionId={sessionId} onNavigate={requestNavigation} />
+          </div>
 
-          {showYourProposal && (
-            <section>
-              <SectionHeading title="Your proposal" />
-              <ProposalCard
-                {...sharedProposalProps}
-                proposal={{
-                  id: userProposal?.id ?? "mine",
-                  userName: "You",
-                  startMs: editorStart,
-                  endMs: editorEnd,
-                  voteCount:
-                    detail.proposals.find((p) => p.isMine)?.voteCount ?? 0,
-                  isWinner: false,
-                  isMine: true,
-                  isDefault: false,
-                }}
-                previewKey="mine"
-                readOnly={false}
-                showMeta={false}
-                onRemove={removeProposalHandler}
-                removeLoading={removeLoading}
-                saveUrl={`/api/sessions/${sessionId}/tracks/${clipId}/proposal`}
-                onUpdate={handleProposalUpdate}
+          <p className="text-sm text-zinc-500">Track {track.position + 1}</p>
+          <h1 className="text-2xl font-semibold">{track.trackName}</h1>
+          <p className="text-zinc-500">{track.artistName}</p>
+          {playbackRange.source === "saved" ? (
+            <p className="mt-2 text-sm text-zinc-500">
+              Team plays{" "}
+              <span className="text-zinc-700 dark:text-zinc-300">
+                {msToLabel(playbackRange.startMs)} – {msToLabel(playbackRange.endMs)}
+              </span>
+              {" · "}
+              last saved by {playbackRange.editorName}
+            </p>
+          ) : (
+            <p className="mt-2 text-sm text-zinc-500">
+              Using the default clip — adjust the range and save to create the first version
+            </p>
+          )}
+
+          {rateLimitMessage && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+              {rateLimitMessage}
+            </div>
+          )}
+
+          <div className="mt-8 space-y-8">
+            <section className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-lg font-medium">
+                  {hasSavedVersion ? "Clip editor" : "Default clip"}
+                </h2>
+                <div className="flex items-center gap-2">
+                  {isDirty && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={saveLoading}
+                      onClick={revertDraft}
+                    >
+                      Revert
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!isDirty || saveLoading}
+                    onClick={() => void saveVersion(draftStartMs, draftEndMs)}
+                  >
+                    {saveLoading ? "Saving…" : "Save version"}
+                  </Button>
+                </div>
+              </div>
+
+              <WaveformEditor
+                manualSave
+                unsaved={isDirty}
+                clipId={clipId}
+                sessionId={sessionId}
+                trackId={track.spotifyTrackId}
+                trackName={track.trackName}
+                artistName={track.artistName}
                 albumArtUrl={track.albumArtUrl}
+                durationMs={track.durationMs}
+                startMs={draftStartMs}
+                endMs={draftEndMs}
+                onDraftChange={(startMs, endMs) => {
+                  setDraftStartMs(startMs);
+                  setDraftEndMs(endMs);
+                }}
+                previewKey="editor"
+                activePreviewKey={activePreviewKey}
+                onPreviewActive={setActivePreviewKey}
+                playback={playback}
+                onPlaybackChange={setPlayback}
+                footer={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <NeedsAttentionButton
+                      needsAttention={detail.needsAttention}
+                      flaggedBy={detail.attentionFlaggedBy}
+                      attentionComment={detail.attentionComment}
+                      trackName={track.trackName}
+                      loading={attentionLoading}
+                      onFlag={(comment) => void flagNeedsAttention(comment)}
+                      onClear={() => void clearNeedsAttention()}
+                    />
+                    {detail.currentVersion ? (
+                      <ClipVersionReactions
+                        showVoters={false}
+                        reactions={detail.currentVersion.reactions}
+                        loading={reactionLoadingVersionId === detail.currentVersion.id}
+                        disabled={isDirty}
+                        onReact={(reaction) =>
+                          void reactToVersion(detail.currentVersion!.id, reaction)
+                        }
+                      />
+                    ) : null}
+                  </div>
+                }
               />
             </section>
-          )}
-        </div>
 
-        {teamSidebar.length > 0 && (
-          <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
-            <h2 className="mb-3 text-lg font-medium">Team proposals</h2>
-            <ul className="space-y-3">
-              {teamSidebar.map((proposal) => (
-                <li key={proposal.id}>
-                  <ProposalCard
-                    {...sharedProposalProps}
-                    proposal={proposal}
-                    previewKey={`proposal-${proposal.id}`}
-                    compact
-                    showMeta
-                    showVote
-                  />
-                </li>
-              ))}
-            </ul>
-          </aside>
-        )}
-      </div>
+            {versions.length > 0 && (
+              <section>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-lg font-medium">Version history</h2>
+                  {versions.length > 1 && showAllVersions && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowAllVersions(false)}
+                    >
+                      Show less
+                    </Button>
+                  )}
+                </div>
+                <VersionHistoryList
+                  versions={versions}
+                  collapsed={historyCollapsed}
+                  track={track}
+                  sessionId={sessionId}
+                  clipId={clipId}
+                  onLoad={loadVersionIntoEditor}
+                  onDelete={(versionId) => void deleteVersion(versionId)}
+                  deletingVersionId={deletingVersionId}
+                  activePreviewKey={activePreviewKey}
+                  onPreviewActive={setActivePreviewKey}
+                  playback={playback}
+                  onPlaybackChange={setPlayback}
+                  onExpand={() => setShowAllVersions(true)}
+                />
+              </section>
+            )}
+          </div>
+      </TrackPageLayout>
     </div>
   );
 }

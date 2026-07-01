@@ -74,17 +74,6 @@ export async function POST(request: Request) {
 
   const userId = session!.user!.id;
 
-  const spotifyConnection = await prisma.spotifyConnection.findUnique({
-    where: { userId },
-  });
-
-  if (!spotifyConnection) {
-    return NextResponse.json(
-      { error: "Link your Spotify account first" },
-      { status: 400 },
-    );
-  }
-
   try {
     const body = await request.json();
     const parsed = createSessionSchema.safeParse(body);
@@ -104,14 +93,25 @@ export async function POST(request: Request) {
 
     await requireTeamMember(teamId, userId);
 
+    const spotifyConnection = await prisma.spotifyConnection.findUnique({
+      where: { teamId },
+    });
+
+    if (!spotifyConnection) {
+      return NextResponse.json(
+        { error: "This team has no Spotify account linked" },
+        { status: 400 },
+      );
+    }
+
     const playlistId = extractPlaylistId(parsed.data.playlistInput);
     if (!playlistId) {
       return NextResponse.json({ error: "Invalid playlist URL or ID" }, { status: 400 });
     }
 
     const [playlistInfo, tracks] = await Promise.all([
-      getPlaylistInfo(userId, playlistId),
-      getPlaylistTracks(userId, playlistId),
+      getPlaylistInfo(teamId, playlistId),
+      getPlaylistTracks(teamId, playlistId),
     ]);
 
     const playableTracks = tracks.filter((item) => isPlayableAudioTrack(item.track));

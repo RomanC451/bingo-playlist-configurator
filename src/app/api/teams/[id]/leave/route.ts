@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
-import { clearActiveTeamCookie, getActiveTeamId } from "@/lib/active-team";
+import { clearPersistedActiveTeam, getActiveTeamId } from "@/lib/active-team";
 import { prisma } from "@/lib/db";
 import { requireTeamMember, teamAccessResponse } from "@/lib/team-auth";
+import { TeamRole } from "@prisma/client";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -16,15 +17,11 @@ export async function POST(_request: Request, context: RouteContext) {
   try {
     const member = await requireTeamMember(teamId, userId);
 
-    const adminCount = await prisma.teamMember.count({
-      where: { teamId, role: "ADMIN" },
-    });
-
-    if (member.role === "ADMIN" && adminCount <= 1) {
+    if (member.role === TeamRole.OWNER) {
       return NextResponse.json(
         {
           error:
-            "You are the only owner. Delete the team before leaving.",
+            "Team owners cannot leave. Transfer ownership or delete the team.",
         },
         { status: 400 },
       );
@@ -38,7 +35,7 @@ export async function POST(_request: Request, context: RouteContext) {
 
     const response = NextResponse.json({ success: true });
     if (activeTeamId === teamId) {
-      clearActiveTeamCookie(response);
+      await clearPersistedActiveTeam(userId, response);
     }
     return response;
   } catch (err) {

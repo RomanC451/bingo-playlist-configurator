@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
-import { getActiveTeamId } from "@/lib/active-team";
+import { getActiveTeamId, restoreActiveTeamCookie } from "@/lib/active-team";
 import { prisma } from "@/lib/db";
 import { getHomeSessionHighlights } from "@/lib/session-activity";
+import { loadTracksNeedingAttention } from "@/lib/track-attention";
 import { apiErrorResponse, teamAccessResponse } from "@/lib/team-auth";
 
 export async function GET() {
@@ -21,11 +22,17 @@ export async function GET() {
       : null;
 
     const highlights = await getHomeSessionHighlights(userId, activeTeamId);
+    const tracksNeedingAttention = activeTeamId
+      ? await loadTracksNeedingAttention(activeTeamId)
+      : [];
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       activeTeam,
+      tracksNeedingAttention,
       ...highlights,
     });
+    await restoreActiveTeamCookie(userId, response);
+    return response;
   } catch (err) {
     const response = teamAccessResponse(err);
     if (response) return response;

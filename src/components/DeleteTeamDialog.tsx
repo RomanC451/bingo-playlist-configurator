@@ -69,8 +69,8 @@ export function DeleteTeamDialog({
           Delete team
         </h2>
         <p id={`${inputId}-description`} className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          This permanently removes the team, all members, bingo sessions, tracks, proposals, and
-          votes. This cannot be undone.
+          This permanently removes the team, all members, bingo sessions, tracks, and clip
+          versions. This cannot be undone.
         </p>
         <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300">
           Type{" "}

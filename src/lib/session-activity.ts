@@ -67,7 +67,7 @@ export async function getHomeSessionHighlights(userId: string, activeTeamId: str
     };
   }
 
-  const [lastActivity, latestSession, latestProposal, latestVote] = await Promise.all([
+  const [lastActivity, latestSession, latestVersion] = await Promise.all([
     prisma.sessionUserActivity.findFirst({
       where: {
         userId,
@@ -81,15 +81,10 @@ export async function getHomeSessionHighlights(userId: string, activeTeamId: str
       orderBy: { updatedAt: "desc" },
       include: sessionInclude,
     }),
-    prisma.clipProposal.findFirst({
-      where: { trackClip: { session: { teamId: activeTeamId } } },
-      orderBy: { updatedAt: "desc" },
-      include: { trackClip: { include: { session: { include: sessionInclude } } } },
-    }),
-    prisma.clipVote.findFirst({
-      where: { trackClip: { session: { teamId: activeTeamId } } },
+    prisma.clipProposalVersion.findFirst({
+      where: { proposal: { trackClip: { session: { teamId: activeTeamId } } } },
       orderBy: { createdAt: "desc" },
-      include: { trackClip: { include: { session: { include: sessionInclude } } } },
+      include: { proposal: { include: { trackClip: { include: { session: { include: sessionInclude } } } } } },
     }),
   ]);
 
@@ -97,16 +92,10 @@ export async function getHomeSessionHighlights(userId: string, activeTeamId: str
   if (latestSession) {
     teamActivityCandidates.push({ at: latestSession.updatedAt, session: latestSession });
   }
-  if (latestProposal) {
+  if (latestVersion) {
     teamActivityCandidates.push({
-      at: latestProposal.updatedAt,
-      session: latestProposal.trackClip.session,
-    });
-  }
-  if (latestVote) {
-    teamActivityCandidates.push({
-      at: latestVote.createdAt,
-      session: latestVote.trackClip.session,
+      at: latestVersion.createdAt,
+      session: latestVersion.proposal.trackClip.session,
     });
   }
 

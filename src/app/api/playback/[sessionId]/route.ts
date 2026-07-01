@@ -3,7 +3,7 @@ import { z } from "zod";
 import { internalError, spotifyErrorResponse } from "@/lib/api-errors";
 import { requireAuth } from "@/lib/api-auth";
 import { attachPlaybackRanges } from "@/lib/track-summaries";
-import { resolvePlaybackRange } from "@/lib/clip-selection";
+import { getLatestVersion, resolvePlaybackRange } from "@/lib/clip-selection";
 import { prisma } from "@/lib/db";
 import {
   asSpotifyApiError,
@@ -42,10 +42,14 @@ async function loadSessionWithPlaybackClips(sessionId: string) {
       trackClips: {
         orderBy: { position: "asc" },
         include: {
-          proposals: {
-            include: { user: { select: { name: true, email: true } } },
+          proposal: {
+            include: {
+              versions: {
+                include: { createdBy: { select: { name: true, email: true } } },
+                orderBy: { createdAt: "desc" },
+              },
+            },
           },
-          votes: true,
         },
       },
     },
@@ -83,25 +87,29 @@ export async function GET(request: Request, context: RouteContext) {
   const playerOnly = searchParams.get("scope") === "player";
 
   try {
-    await requireSessionAccess(sessionId, session!.user!.id);
+    const { bingoSession } = await requireSessionAccess(sessionId, session!.user!.id);
+    const teamId = bingoSession.teamId;
+    if (!teamId) {
+      return NextResponse.json({ error: "Session has no team" }, { status: 400 });
+    }
 
     if (playerOnly) {
-      const playback = await getPlaybackState(session!.user!.id);
+      const playback = await getPlaybackState(teamId);
       return NextResponse.json({ playback });
     }
 
-    const bingoSession = await loadSessionWithPlaybackClips(sessionId);
-    if (!bingoSession) {
+    const bingoSessionWithClips = await loadSessionWithPlaybackClips(sessionId);
+    if (!bingoSessionWithClips) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const [playback, devices] = await Promise.all([
-      getPlaybackState(session!.user!.id),
-      getDevices(session!.user!.id),
+      getPlaybackState(teamId),
+      getDevices(teamId),
     ]);
 
     return NextResponse.json({
-      session: bingoSession,
+      session: bingoSessionWithClips,
       playback,
       devices: devices.devices,
       hasActiveDevice: devices.devices.some((d) => d.is_active),
@@ -121,7 +129,11 @@ export async function POST(request: Request, context: RouteContext) {
   const userId = session!.user!.id;
 
   try {
-    await requireSessionAccess(sessionId, userId);
+    const { bingoSession: accessSession } = await requireSessionAccess(sessionId, userId);
+    const teamId = accessSession.teamId;
+    if (!teamId) {
+      return NextResponse.json({ error: "Session has no team" }, { status: 400 });
+    }
 
     const rawSession = await prisma.bingoSession.findUnique({
       where: { id: sessionId },
@@ -129,10 +141,14 @@ export async function POST(request: Request, context: RouteContext) {
         trackClips: {
           orderBy: { position: "asc" },
           include: {
-            proposals: {
-              include: { user: { select: { name: true, email: true } } },
+            proposal: {
+              include: {
+                versions: {
+                  include: { createdBy: { select: { name: true, email: true } } },
+                  orderBy: { createdAt: "desc" },
+                },
+              },
             },
-            votes: true,
           },
         },
       },
@@ -154,17 +170,17 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Clip not found" }, { status: 404 });
     }
 
+    const latest = getLatestVersion(clipRow.proposal?.versions ?? []);
     const playbackRange = resolvePlaybackRange(
       { startMs: clipRow.startMs, endMs: clipRow.endMs },
-      clipRow.proposals,
-      clipRow.votes,
+      latest,
     );
 
     const rangeStart = parsed.data.clipStartMs ?? playbackRange.startMs;
     const rangeEnd = parsed.data.clipEndMs ?? playbackRange.endMs;
 
     if (parsed.data.action === "pause") {
-      await pauseActivePlayback(userId, parsed.data.deviceId);
+      await pauseActivePlayback(teamId, parsed.data.deviceId);
       return NextResponse.json({ success: true });
     }
 
@@ -175,7 +191,7 @@ export async function POST(request: Request, context: RouteContext) {
     );
 
     await startClipPlayback(
-      userId,
+      teamId,
       `spotify:track:${clipRow.spotifyTrackId}`,
       seekMs,
       parsed.data.deviceId,
@@ -184,7 +200,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     let playback = null;
     try {
-      playback = await getPlaybackState(userId);
+      playback = await getPlaybackState(teamId);
     } catch {
       // Play succeeded; player state may lag behind.
     }

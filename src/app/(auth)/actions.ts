@@ -17,11 +17,17 @@ const registerSchema = z.object({
 });
 
 export async function loginAction(formData: FormData) {
+  const callbackUrl = formData.get("callbackUrl");
+  const redirectTo =
+    typeof callbackUrl === "string" && callbackUrl.startsWith("/")
+      ? callbackUrl
+      : "/";
+
   try {
     await signIn("credentials", {
       email: formData.get("email"),
       password: formData.get("password"),
-      redirectTo: "/",
+      redirectTo,
     });
   } catch (error) {
     if (isRedirectError(error)) throw error;

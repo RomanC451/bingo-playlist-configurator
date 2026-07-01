@@ -5,6 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import { History, Users } from "lucide-react";
 import { HomePageSkeleton } from "@/components/page-skeletons";
 import { SessionPanel } from "@/components/session-panel";
+import {
+  TracksNeedingAttentionPanel,
+  type AttentionTrackSummary,
+} from "@/components/TracksNeedingAttentionPanel";
 import type { Session } from "@/components/session-card";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { errorMessageFromBody } from "@/lib/api-errors";
@@ -26,6 +30,7 @@ interface HomeData {
   activeTeam: { id: string; name: string } | null;
   lastWorkedByYou: HomeSessionSummary | null;
   lastUpdatedByTeam: HomeSessionSummary | null;
+  tracksNeedingAttention: AttentionTrackSummary[];
   error?: string;
 }
 
@@ -119,7 +124,8 @@ export default function HomePage() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-2">
           <SessionPanel
             icon={History}
             title="Last session you worked on"
@@ -138,7 +144,7 @@ export default function HomePage() {
           <SessionPanel
             icon={Users}
             title="Latest team update"
-            description="The session with the most recent proposal, vote, or edit by anyone on the team."
+            description="The session with the most recent clip save or edit by anyone on the team."
             badge="Team"
             session={
               data.lastUpdatedByTeam
@@ -150,6 +156,8 @@ export default function HomePage() {
             }
             emptyMessage="No sessions in this team yet. Create one from the Sessions page."
           />
+          </div>
+          <TracksNeedingAttentionPanel tracks={data.tracksNeedingAttention ?? []} />
         </div>
       )}
     </div>

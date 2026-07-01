@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/api-auth";
-import { getActiveTeamId, setActiveTeamCookie } from "@/lib/active-team";
+import { getActiveTeamId, persistActiveTeamForUser, restoreActiveTeamCookie } from "@/lib/active-team";
 import { prisma } from "@/lib/db";
 import { apiErrorResponse } from "@/lib/team-auth";
 
@@ -22,7 +22,7 @@ export async function GET() {
       include: {
         members: {
           include: {
-            user: { select: { id: true, name: true, email: true } },
+            user: { select: { id: true, name: true, email: true, image: true } },
           },
           orderBy: { createdAt: "asc" },
         },
@@ -32,7 +32,9 @@ export async function GET() {
 
     const activeTeamId = await getActiveTeamId(userId);
 
-    return NextResponse.json({ teams, activeTeamId });
+    const response = NextResponse.json({ teams, activeTeamId });
+    await restoreActiveTeamCookie(userId, response);
+    return response;
   } catch (err) {
     return apiErrorResponse(err, "Failed to load teams");
   }
@@ -54,13 +56,13 @@ export async function POST(request: Request) {
     data: {
       name: parsed.data.name,
       members: {
-        create: { userId, role: "ADMIN" },
+        create: { userId, role: "OWNER" },
       },
     },
     include: {
       members: {
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: { id: true, name: true, email: true, image: true } },
         },
       },
       _count: { select: { bingoSessions: true } },
@@ -68,6 +70,6 @@ export async function POST(request: Request) {
   });
 
   const response = NextResponse.json(team, { status: 201 });
-  setActiveTeamCookie(response, team.id);
+  await persistActiveTeamForUser(userId, team.id, response);
   return response;
 }
