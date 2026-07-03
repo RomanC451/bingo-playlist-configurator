@@ -78,6 +78,7 @@ export async function GET(request: Request) {
         accessToken: encrypt(tokens.access_token),
         refreshToken: encrypt(tokens.refresh_token!),
         expiresAt,
+        scope: tokens.scope,
       },
       update: {
         spotifyUserId: profile.id,
@@ -86,6 +87,7 @@ export async function GET(request: Request) {
           ? { refreshToken: encrypt(tokens.refresh_token) }
           : {}),
         expiresAt,
+        scope: tokens.scope,
       },
     });
 

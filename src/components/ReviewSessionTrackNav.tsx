@@ -1,13 +1,22 @@
 "use client";
 
+import { ListMusic } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
+import { buttonClassName } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import type { ReviewTrackListItem, ReviewTrackStatus } from "@/lib/track-review";
 import { isTrackLockedByOther } from "@/lib/track-edit-lock";
 import { TrackEditingIndicator } from "@/components/TrackEditingIndicator";
 import { cn } from "@/lib/utils";
 
-interface ReviewSessionTrackNavProps {
+interface ReviewTrackNavBaseProps {
   currentTrackId?: string | null;
   currentUserId?: string | null;
   tracks: ReviewTrackListItem[];
@@ -84,18 +93,22 @@ function TrackNavShell({
   navRef,
   children,
   ariaHidden,
+  className,
+  style,
 }: {
   navRef?: React.RefObject<HTMLElement | null>;
   children: ReactNode;
   ariaHidden?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
 }) {
   return (
     <nav
       ref={navRef}
       aria-label={ariaHidden ? undefined : "Review tracks"}
       aria-hidden={ariaHidden}
-      style={{ width: COLLAPSED_WIDTH_PX }}
-      className={navShellClassName}
+      style={style ?? { width: COLLAPSED_WIDTH_PX }}
+      className={cn(navShellClassName, className)}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -117,12 +130,93 @@ function TrackNavShell({
   );
 }
 
+function ReviewTrackList({
+  tracks,
+  currentTrackId,
+  currentUserId,
+  onSelectTrack,
+  activeRef,
+  expandOnHover = false,
+  wrapLabels = false,
+}: ReviewTrackNavBaseProps & {
+  activeRef?: React.RefObject<HTMLButtonElement | null>;
+  expandOnHover?: boolean;
+  wrapLabels?: boolean;
+}) {
+  return (
+    <ul className="space-y-0.5 pr-2">
+      {tracks.map((track) => {
+        const isActive = track.id === currentTrackId;
+        const lockedByOther = isTrackLockedByOther(track.editingBy, currentUserId);
+        return (
+          <li key={track.id}>
+            <button
+              ref={isActive ? activeRef : undefined}
+              type="button"
+              disabled={lockedByOther}
+              aria-current={isActive ? "true" : undefined}
+              aria-disabled={lockedByOther || undefined}
+              onClick={() => {
+                if (!lockedByOther) {
+                  onSelectTrack(track);
+                }
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
+                reviewTrackRowClassName(track.reviewStatus, isActive),
+                lockedByOther && "cursor-not-allowed opacity-60",
+              )}
+            >
+              <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
+                {track.position + 1}
+              </span>
+              <span
+                className={cn(
+                  "size-2 shrink-0 rounded-full",
+                  reviewStatusDotClass(track.reviewStatus),
+                  isActive &&
+                    "ring-2 ring-sky-500/80 ring-offset-1 ring-offset-zinc-200 dark:ring-sky-400/70 dark:ring-offset-zinc-800",
+                )}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1">
+                <span
+                  className={cn(
+                    wrapLabels ? "block whitespace-normal" : "block truncate",
+                    expandOnHover && "group-hover/tracks:whitespace-nowrap",
+                    isActive && "text-foreground",
+                  )}
+                >
+                  {track.trackName}
+                </span>
+                <span
+                  className={cn(
+                    wrapLabels
+                      ? "block whitespace-normal text-xs font-normal text-muted-foreground"
+                      : "block truncate text-xs font-normal text-muted-foreground",
+                    expandOnHover && "group-hover/tracks:whitespace-nowrap",
+                  )}
+                >
+                  {track.artistName}
+                </span>
+                {track.editingBy && (
+                  <TrackEditingIndicator editingBy={track.editingBy} className="mt-1" />
+                )}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function ReviewSessionTrackNav({
   currentTrackId,
   currentUserId,
   tracks,
   onSelectTrack,
-}: ReviewSessionTrackNavProps) {
+}: ReviewTrackNavBaseProps) {
   const navRef = useRef<HTMLElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
 
@@ -149,66 +243,109 @@ export function ReviewSessionTrackNav({
       }}
     >
       <TrackNavShell navRef={navRef}>
-        <ul className="space-y-0.5 pr-2">
-          {tracks.map((track) => {
-            const isActive = track.id === currentTrackId;
-            const lockedByOther = isTrackLockedByOther(track.editingBy, currentUserId);
-            return (
-              <li key={track.id}>
-                <button
-                  ref={isActive ? activeRef : undefined}
-                  type="button"
-                  disabled={lockedByOther}
-                  aria-current={isActive ? "true" : undefined}
-                  aria-disabled={lockedByOther || undefined}
-                  onClick={() => {
-                    if (!lockedByOther) {
-                      onSelectTrack(track);
-                    }
-                  }}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors",
-                    reviewTrackRowClassName(track.reviewStatus, isActive),
-                    lockedByOther && "cursor-not-allowed opacity-60",
-                  )}
-                >
-                  <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
-                    {track.position + 1}
-                  </span>
-                  <span
-                    className={cn(
-                      "size-2 shrink-0 rounded-full",
-                      reviewStatusDotClass(track.reviewStatus),
-                      isActive && "ring-2 ring-sky-500/80 ring-offset-1 ring-offset-zinc-200 dark:ring-sky-400/70 dark:ring-offset-zinc-800",
-                    )}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        "block truncate group-hover/tracks:whitespace-nowrap",
-                        isActive && "text-foreground",
-                      )}
-                    >
-                      {track.trackName}
-                    </span>
-                    <span className="block truncate text-xs font-normal text-muted-foreground group-hover/tracks:whitespace-nowrap">
-                      {track.artistName}
-                    </span>
-                    {track.editingBy && (
-                      <TrackEditingIndicator
-                        editingBy={track.editingBy}
-                        className="mt-1"
-                      />
-                    )}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <ReviewTrackList
+          tracks={tracks}
+          currentTrackId={currentTrackId}
+          currentUserId={currentUserId}
+          onSelectTrack={onSelectTrack}
+          activeRef={activeRef}
+          expandOnHover
+        />
       </TrackNavShell>
     </aside>
+  );
+}
+
+interface ReviewSessionTrackNavMobileProps extends ReviewTrackNavBaseProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function ReviewSessionTrackNavTrigger({
+  tracks,
+  open,
+  onOpen,
+}: {
+  tracks: ReviewTrackListItem[];
+  open: boolean;
+  onOpen: () => void;
+}) {
+  if (tracks.length === 0) {
+    return null;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        buttonClassName({ variant: "default", size: "default" }),
+        "inline-flex w-full items-center justify-center gap-2 font-semibold shadow-sm sm:w-auto lg:hidden",
+      )}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+    >
+      <ListMusic className="size-5" aria-hidden />
+      Browse tracks ({tracks.length})
+    </button>
+  );
+}
+
+export function ReviewSessionTrackNavMobile({
+  currentTrackId,
+  currentUserId,
+  tracks,
+  onSelectTrack,
+  open,
+  onOpenChange,
+}: ReviewSessionTrackNavMobileProps) {
+  const activeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      activeRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [currentTrackId, open]);
+
+  if (tracks.length === 0) {
+    return null;
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="left"
+        className="flex h-full max-h-dvh flex-col gap-0 overflow-hidden p-0"
+      >
+        <SheetHeader className="space-y-0 border-b border-border px-4 py-4 pr-12">
+          <SheetTitle>Tracks</SheetTitle>
+          <SheetDescription className="flex items-center gap-3 pt-2 text-[11px]">
+            <span className="inline-flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden />
+              OK
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-rose-500" aria-hidden />
+              Not OK
+            </span>
+          </SheetDescription>
+        </SheetHeader>
+
+        <ScrollArea className="min-h-0 flex-1 px-2 py-2">
+          <ReviewTrackList
+            tracks={tracks}
+            currentTrackId={currentTrackId}
+            currentUserId={currentUserId}
+            activeRef={activeRef}
+            wrapLabels
+            onSelectTrack={(track) => {
+              onSelectTrack(track);
+              onOpenChange(false);
+            }}
+          />
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
   );
 }
 

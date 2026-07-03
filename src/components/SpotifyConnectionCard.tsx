@@ -23,6 +23,9 @@ interface SpotifyStatus {
   linkFallbackUrl: string | null;
   account: SpotifyAccount | null;
   profileError?: string;
+  hasStreamingScope?: boolean;
+  isPremium?: boolean;
+  webPlaybackReady?: boolean;
 }
 
 function accountLabel(account: SpotifyAccount): string {
@@ -129,8 +132,21 @@ export function SpotifyConnectionCard({
               Limited
             </span>
           )}
+          {status.linked && status.hasStreamingScope === false && (
+            <span
+              className="shrink-0 text-xs text-amber-600 dark:text-amber-400"
+              title="Re-link once to enable in-browser preview on edit and review pages"
+            >
+              Update for preview
+            </span>
+          )}
           {status.canManage && (
             <>
+              {status.hasStreamingScope === false && (
+                <p className="w-full text-xs text-amber-700 dark:text-amber-300">
+                  Re-link Spotify once to enable in-browser clip preview on edit and review pages.
+                </p>
+              )}
               <a
                 href={status.canLinkHere ? status.switchUrl : status.loopbackLinkUrl + "?switch=1"}
                 className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"

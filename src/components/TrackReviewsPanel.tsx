@@ -278,10 +278,12 @@ export function AllReviewsButton({
   members,
   currentUserId,
   onClick,
+  className,
 }: {
   members: MemberReviewProgress[];
   currentUserId?: string | null;
   onClick: () => void;
+  className?: string;
 }) {
   const others = currentUserId
     ? members.filter((member) => member.userId !== currentUserId)
@@ -292,7 +294,10 @@ export function AllReviewsButton({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-lg border border-border px-3 py-1.5 text-sm text-foreground hover:bg-secondary"
+      className={cn(
+        "rounded-lg border border-border px-3 py-1.5 text-sm text-foreground hover:bg-secondary",
+        className,
+      )}
     >
       Team reviews{reviewedCount > 0 ? ` (${reviewedCount})` : ""}
     </button>

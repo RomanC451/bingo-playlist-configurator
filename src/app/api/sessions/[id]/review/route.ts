@@ -1,13 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { internalError, spotifyErrorResponse } from "@/lib/api-errors";
+import { internalError } from "@/lib/api-errors";
 import { requireAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
-import {
-  asSpotifyApiError,
-  getDevices,
-  getPlaybackState,
-} from "@/lib/spotify";
 import { requireSessionAccess, teamAccessResponse } from "@/lib/team-auth";
 import {
   getActiveTrackEditLock,
@@ -43,16 +38,6 @@ const trackClipInclude = {
     },
   },
 } as const;
-
-function playbackErrorResponse(err: unknown) {
-  const spotifyErr = asSpotifyApiError(err);
-  if (spotifyErr) {
-    return spotifyErrorResponse(spotifyErr);
-  }
-
-  const message = err instanceof Error ? err.message : "Playback failed";
-  return internalError(message);
-}
 
 async function loadSessionClips(sessionId: string): Promise<TrackClipWithProposal[] | null> {
   const bingoSession = await prisma.bingoSession.findUnique({
@@ -159,36 +144,20 @@ export async function GET(_request: Request, context: RouteContext) {
       teamReviews,
     );
 
-    let playback = null;
-    let deviceList: Awaited<ReturnType<typeof getDevices>>["devices"] = [];
-
-    try {
-      const [playbackResult, devicesResult] = await Promise.all([
-        getPlaybackState(teamId),
-        getDevices(teamId),
-      ]);
-      playback = playbackResult;
-      deviceList = devicesResult.devices;
-    } catch {
-      // Review queue still works when Spotify is unavailable or rate-limited.
-    }
-
     return NextResponse.json({
-      session: { id: sessionData.id, name: sessionData.name },
+      session: { id: sessionData.id, name: sessionData.name, teamId },
       complete: queue.length === 0,
       progress,
       current,
       queue: queue.map(mapQueueItem),
       tracks,
       members,
-      playback,
-      devices: deviceList,
-      hasActiveDevice: deviceList.some((d) => d.is_active),
     });
   } catch (err) {
     const response = teamAccessResponse(err);
     if (response) return response;
-    return playbackErrorResponse(err);
+    const message = err instanceof Error ? err.message : "Failed to load review";
+    return internalError(message);
   }
 }
 

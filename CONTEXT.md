@@ -14,7 +14,13 @@ A user's membership on a Team. Role is `ADMIN` or `MEMBER`.
 - **MEMBER** — propose clips, vote, import playlists, playback
 
 ### SpotifyConnection
-OAuth tokens for one Spotify account linked to a Team. Team admins connect, switch, or disconnect. All members use the team account for import and playback.
+OAuth tokens for one Spotify account linked to a Team. Team admins connect, switch, or disconnect. All members use the team account for import and playback. Stores granted OAuth `scope` (including `streaming` for in-browser preview).
+
+### WebPlayback
+In-browser clip preview on track edit and review pages via the Spotify Web Playback SDK. Requires Premium on the linked team account, the `streaming` OAuth scope, and a one-time team re-link after scope is added. Only one active stream per SpotifyConnection.
+
+### ConnectPlayback
+Playback on the play session page via Spotify Connect — audio plays on an external desktop, mobile, or speaker device selected by the user.
 
 ### BingoSession
 A Spotify playlist import plus its track list. Belongs to one Team. Created by a User (`userId`).
@@ -44,6 +50,8 @@ A per-user OK / Not OK verdict on a track's current playback clip. One row per `
 
 - Session access requires membership on the session's Team.
 - Spotify credentials are per-team (`SpotifyConnection` on Team). Team admins link one shared account; any member can import and control playback on that account's devices.
+- Edit and review preview uses **WebPlayback** in the browser. The play session page uses **ConnectPlayback** on external devices.
+- Only one active Spotify stream per team account at a time.
 - Team join is admin-only: add member by email (no accept flow).
 
 ## Bootstrap

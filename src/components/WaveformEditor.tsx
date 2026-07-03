@@ -82,7 +82,7 @@ function RestartIcon() {
 }
 
 type ClipPlaybackButtonsProps = {
-  sessionId: string;
+  sessionId?: string;
   clipId: string;
   startMs: number;
   endMs: number;
@@ -136,6 +136,7 @@ export function ClipPlaybackButtons({
 
   const callPlayback = useCallback(
     async (action: "preview" | "pause" | "play", positionMs?: number) => {
+      if (!sessionId) return;
       if (action === "preview" || action === "play") {
         if (previewKey && onPreviewActive) {
           onPreviewActive(previewKey);
@@ -167,6 +168,9 @@ export function ClipPlaybackButtons({
 
   function handlePreview() {
     if (onPreview) {
+      if (previewKey && onPreviewActive) {
+        onPreviewActive(previewKey);
+      }
       void onPreview();
       return;
     }
@@ -183,6 +187,9 @@ export function ClipPlaybackButtons({
 
   function handleRestart() {
     if (onRestart) {
+      if (previewKey && onPreviewActive) {
+        onPreviewActive(previewKey);
+      }
       void onRestart();
       return;
     }
@@ -452,6 +459,8 @@ export function WaveformEditor({
 
   const callPlayback = useCallback(
     async (action: "preview" | "pause" | "play", positionMs?: number) => {
+      if (!sessionId) return;
+
       if (action === "preview" || action === "play") {
         playbackGeneration.current += 1;
         clipEndPauseRequested.current = false;
@@ -541,6 +550,10 @@ export function WaveformEditor({
         clipEndPauseRequested.current = false;
         return;
       }
+      if (onPause) {
+        void onPause();
+        return;
+      }
       await callPlayback("pause");
     })();
   }, [
@@ -549,10 +562,34 @@ export function WaveformEditor({
     playback?.progress_ms,
     callPlayback,
     playbackLoading,
+    onPause,
   ]);
 
   const showPlaybackControls =
     !hidePlaybackControls && (onPreview || onPause || onRestart || sessionId);
+
+  const wrappedOnPreview = useCallback(() => {
+    if (!onPreview) return;
+    playbackGeneration.current += 1;
+    clipEndPauseRequested.current = false;
+    clipPlayStartedAt.current = Date.now();
+    onPreview();
+  }, [onPreview]);
+
+  const wrappedOnPause = useCallback(() => {
+    if (!onPause) return;
+    playbackGeneration.current += 1;
+    clipEndPauseRequested.current = true;
+    onPause();
+  }, [onPause]);
+
+  const wrappedOnRestart = useCallback(() => {
+    if (!onRestart) return;
+    playbackGeneration.current += 1;
+    clipEndPauseRequested.current = false;
+    clipPlayStartedAt.current = Date.now();
+    onRestart();
+  }, [onRestart]);
 
   const playbackButtons = (
     <ClipPlaybackButtons
@@ -565,9 +602,9 @@ export function WaveformEditor({
       onPreviewActive={onPreviewActive}
       playback={sharedPlayback}
       onPlaybackChange={onPlaybackChange}
-      onPreview={onPreview}
-      onPause={onPause}
-      onRestart={onRestart}
+      onPreview={onPreview ? wrappedOnPreview : undefined}
+      onPause={onPause ? wrappedOnPause : undefined}
+      onRestart={onRestart ? wrappedOnRestart : undefined}
     />
   );
 

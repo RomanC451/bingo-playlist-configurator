@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
 import { getSpotifyProfile, SpotifyApiError } from "@/lib/spotify";
+import { hasStreamingScope } from "@/lib/spotify-types";
 import {
   canStartSpotifyOAuthFromOrigin,
   getSpotifyClientId,
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
 
     const connection = await prisma.spotifyConnection.findUnique({
       where: { teamId },
-      select: { spotifyUserId: true, expiresAt: true },
+      select: { spotifyUserId: true, expiresAt: true, scope: true },
     });
 
     const clientId = getSpotifyClientId();
@@ -85,12 +86,16 @@ export async function GET(request: Request) {
           product: null,
         };
         if (err instanceof SpotifyApiError && err.message === "not_allowlisted") {
+          const hasStreamingScopeFlag = hasStreamingScope(connection.scope);
           return NextResponse.json({
             linked: true,
             configured: isSpotifyConfigured(),
             canManage,
             spotifyUserId: connection.spotifyUserId,
             expiresAt: connection.expiresAt,
+            hasStreamingScope: hasStreamingScopeFlag,
+            isPremium: false,
+            webPlaybackReady: false,
             clientIdHint,
             ...linkFields,
             account,
@@ -100,12 +105,19 @@ export async function GET(request: Request) {
       }
     }
 
+    const hasStreamingScopeFlag = hasStreamingScope(connection?.scope);
+    const isPremium = account?.product === "premium";
+    const webPlaybackReady = !!connection && hasStreamingScopeFlag && isPremium;
+
     return NextResponse.json({
       linked: !!connection,
       configured: isSpotifyConfigured(),
       canManage,
       spotifyUserId: connection?.spotifyUserId ?? null,
       expiresAt: connection?.expiresAt ?? null,
+      hasStreamingScope: hasStreamingScopeFlag,
+      isPremium,
+      webPlaybackReady,
       clientIdHint,
       ...linkFields,
       account,
