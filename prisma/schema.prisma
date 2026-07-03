@@ -118,6 +118,8 @@ model BingoSession {
   spotifyPlaylistName   String?
   spotifyPlaylistImageUrl String?
   defaultClipDurationMs Int      @default(30000)
+  guessShareEnabled     Boolean  @default(false)
+  guessShareToken       String?  @unique
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -125,6 +127,7 @@ model BingoSession {
   team       Team?       @relation(fields: [teamId], references: [id], onDelete: Cascade)
   trackClips TrackClip[]
   userActivity SessionUserActivity[]
+  clipGuesses  ClipGuess[]
 
   @@index([userId])
   @@index([teamId])
@@ -162,6 +165,8 @@ model TrackClip {
   proposal           ClipProposal?
   reviews            TrackClipReview[]
   editLock           TrackClipEditLock?
+  clipGuessesHeard   ClipGuess[]   @relation("ClipGuessHeard")
+  clipGuessesPicked  ClipGuess[]   @relation("ClipGuessPicked")
 
   @@unique([sessionId, spotifyTrackId])
   @@index([sessionId, position])
@@ -240,6 +245,22 @@ model TrackClipEditLock {
 enum ClipReactionType {
   LIKE
   DISLIKE
+}
+
+model ClipGuess {
+  sessionId          String
+  guestId            String
+  trackClipId        String
+  guessedTrackClipId String
+  correct            Boolean
+  createdAt          DateTime @default(now())
+
+  session   BingoSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  trackClip TrackClip    @relation("ClipGuessHeard", fields: [trackClipId], references: [id], onDelete: Cascade)
+  guessed   TrackClip    @relation("ClipGuessPicked", fields: [guessedTrackClipId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, guestId, trackClipId])
+  @@index([sessionId])
 }
 
 model ClipProposalVersionReaction {

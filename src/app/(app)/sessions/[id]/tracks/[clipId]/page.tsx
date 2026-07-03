@@ -18,6 +18,7 @@ import { Button, buttonClassName } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WaveformEditor, ClipPlaybackButtons, type PlaybackState } from "@/components/WaveformEditor";
 import { SpotifyWebPlaybackGate, useSpotifyWebPlaybackStatus } from "@/components/SpotifyWebPlaybackGate";
+import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
 import { useSpotifyWebPlayer } from "@/hooks/useSpotifyWebPlayer";
 import { useSimulatedPlaybackProgress } from "@/hooks/useSimulatedPlaybackProgress";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
@@ -919,9 +920,19 @@ export default function TrackEditPage() {
             <BackToTracksLink sessionId={sessionId} onNavigate={requestNavigation} />
           </div>
 
-          <p className="text-sm text-zinc-500">Track {track.position + 1}</p>
-          <h1 className="text-2xl font-semibold">{track.trackName}</h1>
-          <p className="text-zinc-500">{track.artistName}</p>
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0">
+              <p className="text-sm text-zinc-500">Track {track.position + 1}</p>
+              <h1 className="text-2xl font-semibold">{track.trackName}</h1>
+              <p className="text-zinc-500">{track.artistName}</p>
+            </div>
+            <SpotifyVolumeSlider
+              compact
+              volume={webPlayer.volume}
+              onVolumeChange={webPlayer.setVolume}
+              disabled={playbackDisabled}
+            />
+          </div>
 
           {webPlayer.error && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">

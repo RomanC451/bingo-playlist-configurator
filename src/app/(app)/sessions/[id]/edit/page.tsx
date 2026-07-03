@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { ClipGuessShareCard } from "@/components/ClipGuessShareCard";
 import { SessionEditorsList, type SessionEditorSummary } from "@/components/SessionEditorsList";
 import { SessionTeamProgressDialog } from "@/components/SessionTeamProgressDialog";
 import { TrackClipDot, TrackClipStatusText, TrackNeedsAttentionText, trackListLinkClassName } from "@/components/TrackClipStatus";
@@ -156,6 +157,10 @@ export default function EditSessionPage() {
       </div>
 
       <SessionEditorsList editors={session.editors ?? []} />
+
+      <div className="mt-6">
+        <ClipGuessShareCard sessionId={sessionId} />
+      </div>
 
       {session.tracks.length === 0 ? (
         <div className="mt-8 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">

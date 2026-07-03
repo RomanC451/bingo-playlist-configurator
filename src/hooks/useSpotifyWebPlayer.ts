@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readJsonResponse } from "@/lib/read-json-response";
 import {
   loadSpotifyWebPlaybackSdk,
@@ -28,8 +28,51 @@ type ClipBounds = {
 
 let sharedPlayer: Spotify.Player | null = null;
 let sharedDeviceId: string | null = null;
-let sharedTeamId: string | null = null;
+let sharedPlayerKey: string | null = null;
 let initPromise: Promise<{ deviceId: string }> | null = null;
+
+const VOLUME_STORAGE_KEY = "spotify-web-playback-volume";
+let sharedVolume = 1;
+
+function readStoredVolume(): number {
+  if (typeof window === "undefined") {
+    return 1;
+  }
+
+  const stored = localStorage.getItem(VOLUME_STORAGE_KEY);
+  if (stored == null) {
+    return 1;
+  }
+
+  const parsed = Number(stored);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+
+  return Math.min(1, Math.max(0, parsed));
+}
+
+function persistVolume(volume: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  localStorage.setItem(VOLUME_STORAGE_KEY, String(volume));
+}
+
+function applyPlayerVolume(volume: number) {
+  void sharedPlayer?.setVolume(volume);
+}
+
+function setSharedVolume(volume: number) {
+  const clamped = Math.min(1, Math.max(0, volume));
+  sharedVolume = clamped;
+  persistVolume(clamped);
+  applyPlayerVolume(clamped);
+  return clamped;
+}
+
+sharedVolume = readStoredVolume();
 
 async function fetchPlayerToken(teamId: string): Promise<string> {
   const res = await fetch(`/api/spotify/player-token?teamId=${encodeURIComponent(teamId)}`);
@@ -45,20 +88,34 @@ async function fetchPlayerToken(teamId: string): Promise<string> {
   return json.accessToken;
 }
 
-function createTokenProvider(teamId: string) {
+async function fetchGuessPlayerToken(shareToken: string): Promise<string> {
+  const res = await fetch(`/api/public/guess/${encodeURIComponent(shareToken)}/player-token`);
+  const json = await readJsonResponse<{ accessToken?: string; error?: string; code?: string }>(
+    res,
+  );
+  if (!res.ok) {
+    throw new Error(json.error ?? "Failed to get Spotify player token");
+  }
+  if (!json.accessToken) {
+    throw new Error("No access token returned");
+  }
+  return json.accessToken;
+}
+
+function createTokenProvider(fetchToken: () => Promise<string>) {
   return (cb: (token: string) => void) => {
-    void fetchPlayerToken(teamId)
+    void fetchToken()
       .then(cb)
       .catch(() => cb(""));
   };
 }
 
-async function ensurePlayer(teamId: string): Promise<{ deviceId: string }> {
-  if (sharedPlayer && sharedDeviceId && sharedTeamId === teamId) {
+async function ensurePlayer(playerKey: string, fetchToken: () => Promise<string>): Promise<{ deviceId: string }> {
+  if (sharedPlayer && sharedDeviceId && sharedPlayerKey === playerKey) {
     return { deviceId: sharedDeviceId };
   }
 
-  if (sharedPlayer && sharedTeamId !== teamId) {
+  if (sharedPlayer && sharedPlayerKey !== playerKey) {
     sharedPlayer.disconnect();
     sharedPlayer = null;
     sharedDeviceId = null;
@@ -77,8 +134,8 @@ async function ensurePlayer(teamId: string): Promise<{ deviceId: string }> {
 
     const player = new window.Spotify.Player({
       name: "Bingo Playlist Maker",
-      getOAuthToken: createTokenProvider(teamId),
-      volume: 1,
+      getOAuthToken: createTokenProvider(fetchToken),
+      volume: sharedVolume,
     });
 
     const deviceId = await new Promise<string>((resolve, reject) => {
@@ -116,7 +173,8 @@ async function ensurePlayer(teamId: string): Promise<{ deviceId: string }> {
 
     sharedPlayer = player;
     sharedDeviceId = deviceId;
-    sharedTeamId = teamId;
+    sharedPlayerKey = playerKey;
+    applyPlayerVolume(sharedVolume);
     return { deviceId };
   })();
 
@@ -126,17 +184,41 @@ async function ensurePlayer(teamId: string): Promise<{ deviceId: string }> {
     initPromise = null;
     sharedPlayer = null;
     sharedDeviceId = null;
-    sharedTeamId = null;
+    sharedPlayerKey = null;
     throw err;
   }
 }
 
-export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
+type SpotifyWebPlayerOptions = {
+  teamId?: string | null;
+  shareToken?: string | null;
+  enabled?: boolean;
+};
+
+export function useSpotifyWebPlayer(
+  teamIdOrOptions: string | null | SpotifyWebPlayerOptions,
+  enabledArg = true,
+) {
+  const options: SpotifyWebPlayerOptions =
+    typeof teamIdOrOptions === "string" || teamIdOrOptions === null
+      ? { teamId: teamIdOrOptions, enabled: enabledArg }
+      : teamIdOrOptions;
+
+  const teamId = options.teamId ?? null;
+  const shareToken = options.shareToken ?? null;
+  const enabled = options.enabled ?? true;
+  const playerKey = shareToken ? `guess:${shareToken}` : teamId ? `team:${teamId}` : null;
+  const fetchToken = useMemo(() => {
+    if (shareToken) return () => fetchGuessPlayerToken(shareToken);
+    if (teamId) return () => fetchPlayerToken(teamId);
+    return null;
+  }, [shareToken, teamId]);
   const [status, setStatus] = useState<SpotifyWebPlayerStatus>("idle");
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [playback, setPlayback] = useState<WebPlaybackState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [volume, setVolumeState] = useState(sharedVolume);
 
   const clipBoundsRef = useRef<ClipBounds | null>(null);
   const clipEndPauseRequested = useRef(false);
@@ -145,7 +227,7 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
   const playerRef = useRef<Spotify.Player | null>(null);
 
   useEffect(() => {
-    if (!enabled || !teamId) {
+    if (!enabled || !playerKey || !fetchToken) {
       setStatus("idle");
       setDeviceId(null);
       return;
@@ -155,7 +237,7 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
     setStatus("loading");
     setError(null);
 
-    void ensurePlayer(teamId)
+    void ensurePlayer(playerKey, fetchToken)
       .then(({ deviceId: id }) => {
         if (cancelled) return;
         setDeviceId(id);
@@ -171,11 +253,11 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
     return () => {
       cancelled = true;
     };
-  }, [enabled, teamId]);
+  }, [enabled, fetchToken, playerKey]);
 
   useEffect(() => {
     const player = sharedPlayer;
-    if (!player || !enabled || !teamId) return;
+    if (!player || !enabled || !playerKey) return;
 
     const onStateChanged = (state: Spotify.WebPlaybackState | null) => {
       setPlayback(webPlaybackStateToPlaybackState(state));
@@ -192,7 +274,7 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
     return () => {
       player.removeListener("player_state_changed");
     };
-  }, [enabled, teamId, status]);
+  }, [enabled, playerKey, status]);
 
   useEffect(() => {
     const bounds = clipBoundsRef.current;
@@ -238,8 +320,8 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
 
   const playClip = useCallback(
     async (trackId: string, startMs: number, endMs: number) => {
-      if (!teamId) {
-        throw new Error("Team Spotify is not available");
+      if (!playerKey || !fetchToken) {
+        throw new Error("Spotify playback is not available");
       }
 
       playbackGeneration.current += 1;
@@ -251,8 +333,8 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
       setError(null);
 
       try {
-        const { deviceId: resolvedDeviceId } = await ensurePlayer(teamId);
-        const accessToken = await fetchPlayerToken(teamId);
+        const { deviceId: resolvedDeviceId } = await ensurePlayer(playerKey, fetchToken);
+        const accessToken = await fetchToken();
         const player = sharedPlayer;
         if (player) {
           await player.activateElement();
@@ -272,7 +354,7 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
         setActionLoading(false);
       }
     },
-    [teamId],
+    [fetchToken, playerKey],
   );
 
   const pause = useCallback(async () => {
@@ -287,12 +369,31 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
     }
   }, []);
 
+  const resume = useCallback(async () => {
+    if (!sharedPlayer) return;
+    clipEndPauseRequested.current = false;
+    setActionLoading(true);
+    setError(null);
+    try {
+      await sharedPlayer.resume();
+      setPlayback((prev) => (prev ? { ...prev, is_playing: true } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Playback failed");
+    } finally {
+      setActionLoading(false);
+    }
+  }, []);
+
   const restartClip = useCallback(
     async (trackId: string, startMs: number, endMs: number) => {
       await playClip(trackId, startMs, endMs);
     },
     [playClip],
   );
+
+  const setVolume = useCallback((nextVolume: number) => {
+    setVolumeState(setSharedVolume(nextVolume));
+  }, []);
 
   return {
     status,
@@ -303,7 +404,10 @@ export function useSpotifyWebPlayer(teamId: string | null, enabled = true) {
     actionLoading,
     playClip,
     pause,
+    resume,
     restartClip,
+    volume,
+    setVolume,
     ready: status === "ready" && !!deviceId,
   };
 }

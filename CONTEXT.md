@@ -46,9 +46,19 @@ A per-user OK / Not OK verdict on a track's current playback clip. One row per `
 - **OK** — clip is acceptable; clears `needsAttention` only if this user flagged it
 - **Not OK** — clip needs work; sets `needsAttention` with optional comment
 
+### ClipGuess
+An anonymous visitor's single locked guess for which **Track** (`TrackClip`) a heard clip belongs to. One row per `(sessionId, guestId, trackClipId)`. Correct when `guessedTrackClipId === trackClipId`.
+
+### ClipGuessGuest
+Opaque ID stored in the visitor's browser (`localStorage`), not a **User**. Used to resume ClipGuess progress across visits.
+
+### Guess share link
+A token-gated public URL (`/guess/[shareToken]`) scoped to one **BingoSession**. Team admins enable, disable, or rotate the token. Playback uses the team's **WebPlayback** credentials via a public API.
+
 ## Access rules
 
 - Session access requires membership on the session's Team.
+- **ClipGuess** is public via an enabled guess share link; no account required.
 - Spotify credentials are per-team (`SpotifyConnection` on Team). Team admins link one shared account; any member can import and control playback on that account's devices.
 - Edit and review preview uses **WebPlayback** in the browser. The play session page uses **ConnectPlayback** on external devices.
 - Only one active Spotify stream per team account at a time.

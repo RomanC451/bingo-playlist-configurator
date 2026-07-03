@@ -20,6 +20,7 @@ import {
 } from "@/components/ReviewSessionTrackNav";
 import { TrackPageLayout } from "@/components/TrackPageLayout";
 import { SpotifyWebPlaybackGate, useSpotifyWebPlaybackStatus } from "@/components/SpotifyWebPlaybackGate";
+import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
 import type { MemberReviewProgress, ReviewTrackListItem } from "@/lib/track-review";
 import { isClipReviewBlockedByOther } from "@/lib/track-review";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
@@ -303,7 +304,15 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
       />
 
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold">Review clips</h1>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <h1 className="text-2xl font-semibold">Review clips</h1>
+          <SpotifyVolumeSlider
+            compact
+            volume={webPlayer.volume}
+            onVolumeChange={webPlayer.setVolume}
+            disabled={!webPlaybackReady}
+          />
+        </div>
         <p className="mt-1 text-sm text-zinc-500">
           Listen to each clip and mark it OK or Not OK. Your review advances automatically.
         </p>
