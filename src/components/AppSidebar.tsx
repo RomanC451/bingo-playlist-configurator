@@ -16,9 +16,9 @@ interface AppSidebarProps {
 
 const navItems = [
   {
-    href: "/",
+    href: "/dashboard",
     label: "Home",
-    isActive: (pathname: string) => pathname === "/",
+    isActive: (pathname: string) => pathname === "/dashboard",
   },
   {
     href: "/teams",
@@ -133,7 +133,7 @@ export function AppSidebar({
         >
           {expanded ? (
             <Link
-              href="/"
+              href="/dashboard"
               onClick={onMobileClose}
               className="min-w-0 text-lg font-semibold leading-tight text-emerald-600"
             >
@@ -141,7 +141,7 @@ export function AppSidebar({
             </Link>
           ) : (
             <Link
-              href="/"
+              href="/dashboard"
               className="flex size-10 items-center justify-center rounded-lg text-lg font-bold text-emerald-600 hover:bg-zinc-100 dark:hover:bg-zinc-900"
               title="Bingo Playlist Configurator"
             >

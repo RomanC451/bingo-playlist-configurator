@@ -17,9 +17,9 @@ import { Breadcrumb } from "@/components/Breadcrumb";
 import { Button, buttonClassName } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WaveformEditor, ClipPlaybackButtons, type PlaybackState } from "@/components/WaveformEditor";
-import { SpotifyWebPlaybackGate, useSpotifyWebPlaybackStatus } from "@/components/SpotifyWebPlaybackGate";
 import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
-import { useSpotifyWebPlayer } from "@/hooks/useSpotifyWebPlayer";
+import { useClipPlayback } from "@/hooks/useClipPlayback";
+import type { UploadedAudioMetadata } from "@/lib/uploaded-audio";
 import { useSimulatedPlaybackProgress } from "@/hooks/useSimulatedPlaybackProgress";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { useTrackEditLock } from "@/hooks/useTrackEditLock";
@@ -87,6 +87,8 @@ interface TrackDetail {
     position: number;
     defaultStartMs: number;
     defaultEndMs: number;
+    hasUploadedAudio: boolean;
+    uploadedAudio: UploadedAudioMetadata | null;
   };
   playbackRange: {
     startMs: number;
@@ -134,6 +136,7 @@ type WebPlaybackHandlers = {
   onPreview: () => void;
   onPause: () => void;
   onRestart: () => void;
+  onSeek: (positionMs: number) => void;
 };
 
 function VersionHistoryItem({
@@ -210,17 +213,19 @@ function VersionHistoryItem({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <ClipPlaybackButtons
-              clipId={clipId}
               startMs={version.startMs}
               endMs={version.endMs}
               previewKey={previewKey}
               activePreviewKey={activePreviewKey}
               onPreviewActive={onPreviewActive}
-              playback={playback}
-              onPlaybackChange={onPlaybackChange}
               onPreview={playbackDisabled ? undefined : webHandlers.onPreview}
               onPause={playbackDisabled ? undefined : webHandlers.onPause}
               onRestart={playbackDisabled ? undefined : webHandlers.onRestart}
+              isPlaying={
+                !!playback?.is_playing &&
+                playback.item?.id === clipId &&
+                activePreviewKey === previewKey
+              }
             />
             <div ref={menuRef} className="relative">
               <Button
@@ -452,11 +457,13 @@ export default function TrackEditPage() {
   const [pendingHref, setPendingHref] = useState<LeaveDestination | null>(null);
   const [activePreviewKey, setActivePreviewKey] = useState<string | null>("editor");
   const [showAllVersions, setShowAllVersions] = useState(false);
-  const [teamId, setTeamId] = useState<string | null>(null);
-  const { webPlaybackReady } = useSpotifyWebPlaybackStatus(teamId);
-  const webPlayer = useSpotifyWebPlayer(teamId, webPlaybackReady);
-  const playback = useSimulatedPlaybackProgress(webPlayer.playback);
-  const setPlayback = webPlayer.setPlayback;
+  const clipPlayback = useClipPlayback({
+    clipId: detail?.track.id ?? clipId,
+    hasUploadedAudio: detail?.track.hasUploadedAudio ?? false,
+    sessionId,
+  });
+  const playback = useSimulatedPlaybackProgress(clipPlayback.playback);
+  const setPlayback = clipPlayback.setPlayback;
 
   const fetchDetail = useCallback(async () => {
     const res = await fetch(`/api/sessions/${sessionId}/tracks/${clipId}`);
@@ -466,10 +473,7 @@ export default function TrackEditPage() {
 
   const fetchSessionTracks = useCallback(async () => {
     const res = await fetch(`/api/sessions/${sessionId}`);
-    const data = await readJsonResponse<{ tracks?: SessionTrackNavItem[]; teamId?: string }>(res);
-    if (res.ok && data.teamId) {
-      setTeamId(data.teamId);
-    }
+    const data = await readJsonResponse<{ tracks?: SessionTrackNavItem[] }>(res);
     if (res.ok && data.tracks) {
       return data.tracks;
     }
@@ -875,18 +879,21 @@ export default function TrackEditPage() {
   const { track, versions } = detail;
   const hasSavedVersion = detail.currentVersion != null;
   const historyCollapsed = !showAllVersions && versions.length > 1;
-  const playbackDisabled = !webPlaybackReady;
+  const playbackDisabled = !detail.track.hasUploadedAudio || !clipPlayback.ready;
 
   function getWebPlaybackHandlers(startMs: number, endMs: number): WebPlaybackHandlers {
     return {
       onPreview: () => {
-        void webPlayer.playClip(track.spotifyTrackId, startMs, endMs);
+        void clipPlayback.playOrResumeClip(track.id, startMs, endMs);
       },
       onPause: () => {
-        void webPlayer.pause();
+        void clipPlayback.pause();
       },
       onRestart: () => {
-        void webPlayer.restartClip(track.spotifyTrackId, startMs, endMs);
+        void clipPlayback.restartClip(track.id, startMs, endMs);
+      },
+      onSeek: (positionMs: number) => {
+        void clipPlayback.seekClip(positionMs, startMs, endMs);
       },
     };
   }
@@ -904,7 +911,6 @@ export default function TrackEditPage() {
       />
 
       <TrackPageLayout nav={trackNav}>
-        <SpotifyWebPlaybackGate teamId={teamId}>
         <div className="mb-4 flex h-8 items-center justify-between gap-3">
             <Breadcrumb
               className="h-8 min-w-0 flex-1"
@@ -928,15 +934,28 @@ export default function TrackEditPage() {
             </div>
             <SpotifyVolumeSlider
               compact
-              volume={webPlayer.volume}
-              onVolumeChange={webPlayer.setVolume}
+              volume={clipPlayback.volume}
+              onVolumeChange={clipPlayback.setVolume}
               disabled={playbackDisabled}
             />
           </div>
 
-          {webPlayer.error && (
+          <p className="mt-4 text-sm">
+            <Link
+              href={`/sessions/${sessionId}/edit?uploadAudio=1`}
+              className="font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+            >
+              Upload session audio
+            </Link>
+            <span className="text-zinc-500">
+              {" "}
+              on the session page to preview clips here.
+            </span>
+          </p>
+
+          {clipPlayback.error && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
-              {webPlayer.error}
+              {clipPlayback.error}
             </div>
           )}
 
@@ -993,6 +1012,7 @@ export default function TrackEditPage() {
                 onPreview={playbackDisabled ? undefined : editorPlayback.onPreview}
                 onPause={playbackDisabled ? undefined : editorPlayback.onPause}
                 onRestart={playbackDisabled ? undefined : editorPlayback.onRestart}
+                onSeek={playbackDisabled ? undefined : editorPlayback.onSeek}
                 footer={
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <NeedsAttentionButton
@@ -1055,7 +1075,6 @@ export default function TrackEditPage() {
               </section>
             )}
           </div>
-        </SpotifyWebPlaybackGate>
       </TrackPageLayout>
     </div>
   );

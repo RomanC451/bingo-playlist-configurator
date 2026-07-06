@@ -8,6 +8,7 @@ if (devHost) {
 
 const nextConfig: NextConfig = {
   allowedDevOrigins,
+  serverExternalPackages: ["mpg123-decoder"],
 };
 
 export default nextConfig;

@@ -16,7 +16,36 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Uploaded audio (optional)
+
+To enable manual track uploads stored in AWS S3, set:
+
+- `S3_AUDIO_BUCKET`
+- `AWS_REGION`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `S3_AUDIO_PREFIX` (optional, default `sessions/`)
+
+Configure bucket CORS to allow `PUT` from your app origin. See [ADR 0003](docs/adr/0003-uploaded-audio-s3-playback.md).
+
+IAM user policy must allow object keys under `sessions/{sessionId}/tracks/{clipId}.{ext}` (three path segments after the bucket name). A resource of `sessions/*` is **not** enough:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET/sessions/*/tracks/*"
+    }
+  ]
+}
+```
+
+Replace `YOUR_BUCKET` with your bucket name.
+
+You can start editing the page by modifying `app/page.tsx`.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

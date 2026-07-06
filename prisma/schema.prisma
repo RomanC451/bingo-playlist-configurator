@@ -30,6 +30,7 @@ model User {
   clipProposalVersionReactions ClipProposalVersionReaction[]
   sessionActivity       SessionUserActivity[]
   tracksFlaggedForAttention TrackClip[] @relation("TrackNeedsAttentionBy")
+  trackClipsUploadedAudio   TrackClip[] @relation("TrackUploadedAudioBy")
   trackClipReviews      TrackClipReview[]
   trackClipEditLocks    TrackClipEditLock[]
   activeTeamId          String?
@@ -159,8 +160,16 @@ model TrackClip {
   needsAttention         Boolean @default(false)
   needsAttentionByUserId String?
   needsAttentionComment  String?
+  uploadedAudioKey              String?
+  uploadedAudioMimeType         String?
+  uploadedAudioSizeBytes        Int?
+  uploadedAudioDurationMs       Int?
+  uploadedAudioUploadedAt       DateTime?
+  uploadedAudioUploadedByUserId String?
+  uploadedAudioWaveformPeaks    Json?
 
   session            BingoSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  uploadedAudioUploadedBy User?   @relation("TrackUploadedAudioBy", fields: [uploadedAudioUploadedByUserId], references: [id], onDelete: SetNull)
   needsAttentionBy   User?         @relation("TrackNeedsAttentionBy", fields: [needsAttentionByUserId], references: [id], onDelete: SetNull)
   proposal           ClipProposal?
   reviews            TrackClipReview[]
@@ -253,6 +262,8 @@ model ClipGuess {
   trackClipId        String
   guessedTrackClipId String
   correct            Boolean
+  replayCount        Int      @default(0)
+  timeToGuessMs      Int      @default(0)
   createdAt          DateTime @default(now())
 
   session   BingoSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)

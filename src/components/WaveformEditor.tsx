@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useSimulatedPlaybackProgress } from "@/hooks/useSimulatedPlaybackProgress";
 import { msToLabel, buildMirroredWaveformPath } from "@/lib/waveform";
 import { readJsonResponse } from "@/lib/read-json-response";
-import { reportPlaybackError } from "@/lib/playback-client";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 interface PlaybackState {
@@ -35,6 +35,7 @@ interface WaveformEditorProps {
   onPreview?: () => void;
   onPause?: () => void;
   onRestart?: () => void;
+  onSeek?: (positionMs: number) => void;
   /** Read-only clip preview (no drag handles or auto-save). */
   readOnly?: boolean;
   /** Hide track title/art (e.g. when embedded in a proposal card). */
@@ -52,69 +53,71 @@ interface WaveformEditorProps {
   footer?: ReactNode;
 }
 
-type DragHandle = "start" | "end" | null;
+type DragHandle = "start" | "end" | "playhead" | null;
 
 const playbackButtonClass =
-  "rounded border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
+  "rounded border border-zinc-300 text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900";
 
-function PlayIcon() {
+function playbackButtonClassName(size: "default" | "lg") {
+  return cn(playbackButtonClass, size === "lg" ? "p-2.5" : "p-1.5");
+}
+
+function iconClassName(size: "default" | "lg") {
+  return size === "lg" ? "h-5 w-5" : "h-4 w-4";
+}
+
+function PlayIcon({ size = "default" }: { size?: "default" | "lg" }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden>
+    <svg viewBox="0 0 24 24" className={cn(iconClassName(size), "fill-current")} aria-hidden>
       <path d="M8 5v14l11-7z" />
     </svg>
   );
 }
 
-function PauseIcon() {
+function PauseIcon({ size = "default" }: { size?: "default" | "lg" }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden>
+    <svg viewBox="0 0 24 24" className={cn(iconClassName(size), "fill-current")} aria-hidden>
       <path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z" />
     </svg>
   );
 }
 
-function RestartIcon() {
+function RestartIcon({ size = "default" }: { size?: "default" | "lg" }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden>
+    <svg viewBox="0 0 24 24" className={cn(iconClassName(size), "fill-current")} aria-hidden>
       <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" />
     </svg>
   );
 }
 
 type ClipPlaybackButtonsProps = {
-  sessionId?: string;
-  clipId: string;
   startMs: number;
   endMs: number;
   previewKey?: string;
   activePreviewKey?: string | null;
   onPreviewActive?: (key: string) => void;
-  playback?: PlaybackState | null;
-  onPlaybackChange?: React.Dispatch<React.SetStateAction<PlaybackState | null>>;
   onPreview?: () => void;
   onPause?: () => void;
   onRestart?: () => void;
+  isPlaying?: boolean;
+  disabled?: boolean;
+  size?: "default" | "lg";
   className?: string;
 };
 
 export function ClipPlaybackButtons({
-  sessionId,
-  clipId,
   startMs,
   endMs,
   previewKey,
   onPreviewActive,
-  playback: sharedPlayback,
-  onPlaybackChange,
   onPreview,
   onPause,
   onRestart,
+  isPlaying = false,
+  disabled = false,
+  size = "default",
   className,
 }: ClipPlaybackButtonsProps) {
-  const [playbackLoading, setPlaybackLoading] = useState(false);
-  const [localPlayback, setLocalPlayback] = useState<PlaybackState | null>(null);
-  const usesSharedPlayback = onPlaybackChange != null;
-  const setPlayback = usesSharedPlayback ? onPlaybackChange : setLocalPlayback;
   const localStartRef = useRef(startMs);
   const localEndRef = useRef(endMs);
 
@@ -123,114 +126,74 @@ export function ClipPlaybackButtons({
     localEndRef.current = endMs;
   }, [startMs, endMs]);
 
-  const playbackBody = useCallback(
-    (action: "preview" | "pause" | "play", positionMs?: number) => ({
-      clipId,
-      action,
-      positionMs,
-      clipStartMs: localStartRef.current,
-      clipEndMs: localEndRef.current,
-    }),
-    [clipId],
-  );
-
-  const callPlayback = useCallback(
-    async (action: "preview" | "pause" | "play", positionMs?: number) => {
-      if (!sessionId) return;
-      if (action === "preview" || action === "play") {
-        if (previewKey && onPreviewActive) {
-          onPreviewActive(previewKey);
-        }
-      }
-
-      setPlaybackLoading(true);
-      try {
-        const res = await fetch(`/api/playback/${sessionId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(playbackBody(action, positionMs)),
-        });
-        const json = await readJsonResponse<{ playback?: PlaybackState | null; error?: string }>(res);
-        if (!res.ok) {
-          reportPlaybackError(res, json, "Playback failed");
-          return;
-        }
-        if (json.playback) setPlayback(json.playback);
-        else if (action === "pause") {
-          setPlayback((prev) => (prev ? { ...prev, is_playing: false } : prev));
-        }
-      } finally {
-        setPlaybackLoading(false);
-      }
-    },
-    [sessionId, playbackBody, previewKey, onPreviewActive, setPlayback],
-  );
-
   function handlePreview() {
-    if (onPreview) {
-      if (previewKey && onPreviewActive) {
-        onPreviewActive(previewKey);
-      }
-      void onPreview();
-      return;
+    if (!onPreview) return;
+    if (previewKey && onPreviewActive) {
+      onPreviewActive(previewKey);
     }
-    void callPlayback("preview");
+    void onPreview();
   }
 
   function handlePause() {
-    if (onPause) {
-      void onPause();
-      return;
-    }
-    void callPlayback("pause");
+    if (!onPause) return;
+    void onPause();
   }
 
   function handleRestart() {
-    if (onRestart) {
-      if (previewKey && onPreviewActive) {
-        onPreviewActive(previewKey);
-      }
-      void onRestart();
-      return;
+    if (!onRestart) return;
+    if (previewKey && onPreviewActive) {
+      onPreviewActive(previewKey);
     }
-    void callPlayback("preview", localStartRef.current);
+    void onRestart();
   }
 
-  const showControls = onPreview || onPause || onRestart || sessionId;
+  function handlePlayPause() {
+    if (isPlaying) {
+      handlePause();
+      return;
+    }
+    handlePreview();
+  }
+
+  const canTogglePlayback = Boolean(onPreview || onPause);
+  const showControls = canTogglePlayback || onRestart;
   if (!showControls) return null;
 
+  const buttonClass = playbackButtonClassName(size);
+  const controlsGap = size === "lg" ? "gap-3" : "gap-1";
+
   return (
-    <div className={className ? `flex items-center gap-1 ${className}` : "flex items-center gap-1"}>
-      <button
-        type="button"
-        disabled={playbackLoading}
-        onClick={handlePreview}
-        aria-label="Preview clip"
-        title="Preview clip"
-        className={playbackButtonClass}
-      >
-        <PlayIcon />
-      </button>
-      <button
-        type="button"
-        disabled={playbackLoading}
-        onClick={handlePause}
-        aria-label="Pause"
-        title="Pause"
-        className={playbackButtonClass}
-      >
-        <PauseIcon />
-      </button>
-      <button
-        type="button"
-        disabled={playbackLoading}
-        onClick={handleRestart}
-        aria-label="Restart clip"
-        title="Restart clip"
-        className={playbackButtonClass}
-      >
-        <RestartIcon />
-      </button>
+    <div
+      className={
+        className
+          ? `flex items-center ${controlsGap} ${className}`
+          : `flex items-center ${controlsGap}`
+      }
+    >
+      {canTogglePlayback ? (
+        <button
+          type="button"
+          onClick={handlePlayPause}
+          disabled={disabled}
+          aria-label={isPlaying ? "Pause clip" : "Play clip"}
+          title={isPlaying ? "Pause" : "Play"}
+          className={buttonClass}
+        >
+          {isPlaying ? <PauseIcon size={size} /> : <PlayIcon size={size} />}
+        </button>
+      ) : null}
+      {onRestart ? (
+        <button
+          type="button"
+          onClick={handleRestart}
+          disabled={disabled}
+          aria-label="Restart clip"
+          title="Restart clip"
+          className={buttonClass}
+        >
+          <RestartIcon size={size} />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -253,6 +216,7 @@ export function WaveformEditor({
   onPreview,
   onPause,
   onRestart,
+  onSeek,
   readOnly = false,
   compact = false,
   previewKey,
@@ -272,16 +236,19 @@ export function WaveformEditor({
   const [dragging, setDragging] = useState<DragHandle>(null);
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [playbackLoading, setPlaybackLoading] = useState(false);
   const [localPlayback, setLocalPlayback] = useState<PlaybackState | null>(null);
   const usesSharedPlayback = onPlaybackChange != null;
-  const rawPlayback = usesSharedPlayback ? (sharedPlayback ?? null) : localPlayback;
+  const hasExternalPlayback = sharedPlayback !== undefined;
+  const rawPlayback =
+    hasExternalPlayback || usesSharedPlayback ? (sharedPlayback ?? null) : localPlayback;
   const setPlayback = usesSharedPlayback ? onPlaybackChange : setLocalPlayback;
   const localStartRef = useRef(startMs);
   const localEndRef = useRef(endMs);
   const clipEndPauseRequested = useRef(false);
   const playbackGeneration = useRef(0);
   const clipPlayStartedAt = useRef(0);
+  const seekPreviewMsRef = useRef<number | null>(null);
+  const [seekPreviewMs, setSeekPreviewMs] = useState<number | null>(null);
 
   useEffect(() => {
     localStartRef.current = localStart;
@@ -377,7 +344,7 @@ export function WaveformEditor({
   );
 
   const applyDragPosition = useCallback(
-    (handle: Exclude<DragHandle, null>, clientX: number) => {
+    (handle: "start" | "end", clientX: number) => {
       const ms = msFromClientX(clientX);
       if (handle === "start") {
         const next = Math.max(0, Math.min(ms, localEndRef.current - 1000));
@@ -414,15 +381,91 @@ export function WaveformEditor({
     [beginDrag, loading, readOnly],
   );
 
+  const commitSeek = useCallback(
+    (positionMs: number) => {
+      if (!onSeek) return;
+      if (previewKey && onPreviewActive) {
+        onPreviewActive(previewKey);
+      }
+      playbackGeneration.current += 1;
+      clipEndPauseRequested.current = false;
+      clipPlayStartedAt.current = Date.now();
+      onSeek(positionMs);
+    },
+    [onPreviewActive, onSeek, previewKey],
+  );
+
+  const msFromClipProgressX = useCallback(
+    (clientX: number, element: HTMLElement) => {
+      const rect = element.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return Math.round(localStartRef.current + ratio * (localEndRef.current - localStartRef.current));
+    },
+    [],
+  );
+
+  const handleProgressBarPointerDown = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!onSeek || loading) return;
+      event.preventDefault();
+      commitSeek(msFromClipProgressX(event.clientX, event.currentTarget));
+    },
+    [commitSeek, loading, msFromClipProgressX, onSeek],
+  );
+
+  const beginPlayheadDrag = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!onSeek || loading) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const initialMs = Math.max(
+        localStartRef.current,
+        Math.min(
+          localEndRef.current,
+          seekPreviewMsRef.current ??
+            (rawPlayback?.item?.id === clipId && rawPlayback.progress_ms != null
+              ? rawPlayback.progress_ms
+              : localStartRef.current),
+        ),
+      );
+      seekPreviewMsRef.current = initialMs;
+      setSeekPreviewMs(initialMs);
+      setDragging("playhead");
+    },
+    [clipId, loading, onSeek, rawPlayback?.item?.id, rawPlayback?.progress_ms],
+  );
+
   useEffect(() => {
     if (!dragging) return;
 
     function onMove(e: MouseEvent) {
-      if (!dragging) return;
-      applyDragPosition(dragging, e.clientX);
+      if (dragging === "playhead") {
+        const ms = Math.max(
+          localStartRef.current,
+          Math.min(localEndRef.current, msFromClientX(e.clientX)),
+        );
+        seekPreviewMsRef.current = ms;
+        setSeekPreviewMs(ms);
+        return;
+      }
+
+      if (dragging === "start" || dragging === "end") {
+        applyDragPosition(dragging, e.clientX);
+      }
     }
 
     function onUp() {
+      if (dragging === "playhead") {
+        const ms = seekPreviewMsRef.current;
+        if (ms != null) {
+          commitSeek(ms);
+        }
+        seekPreviewMsRef.current = null;
+        setSeekPreviewMs(null);
+        setDragging(null);
+        return;
+      }
+
       setDragging(null);
       if (manualSave) {
         onDraftChange?.(localStartRef.current, localEndRef.current);
@@ -437,7 +480,7 @@ export function WaveformEditor({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [dragging, applyDragPosition, scheduleSave, manualSave, onDraftChange]);
+  }, [dragging, applyDragPosition, scheduleSave, manualSave, onDraftChange, msFromClientX, commitSeek]);
 
   const startPct = (localStart / effectiveDuration) * 100;
   const endPct = (localEnd / effectiveDuration) * 100;
@@ -446,59 +489,7 @@ export function WaveformEditor({
     [peaks],
   );
 
-  const playbackBody = useCallback(
-    (action: "preview" | "pause" | "play", positionMs?: number) => ({
-      clipId,
-      action,
-      positionMs,
-      clipStartMs: localStartRef.current,
-      clipEndMs: localEndRef.current,
-    }),
-    [clipId],
-  );
-
-  const callPlayback = useCallback(
-    async (action: "preview" | "pause" | "play", positionMs?: number) => {
-      if (!sessionId) return;
-
-      if (action === "preview" || action === "play") {
-        playbackGeneration.current += 1;
-        clipEndPauseRequested.current = false;
-        clipPlayStartedAt.current = Date.now();
-        if (previewKey && onPreviewActive) {
-          onPreviewActive(previewKey);
-        }
-      } else {
-        playbackGeneration.current += 1;
-        clipEndPauseRequested.current = true;
-      }
-
-      setPlaybackLoading(true);
-      try {
-        const res = await fetch(`/api/playback/${sessionId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(playbackBody(action, positionMs)),
-        });
-        const json = await readJsonResponse<{ playback?: PlaybackState | null; error?: string }>(res);
-        if (!res.ok) {
-          reportPlaybackError(res, json, "Playback failed");
-          return;
-        }
-        if (json.playback) setPlayback(json.playback);
-        else if (action === "pause") {
-          setPlayback((prev) =>
-            prev ? { ...prev, is_playing: false } : prev,
-          );
-        }
-      } finally {
-        setPlaybackLoading(false);
-      }
-    },
-    [sessionId, playbackBody, previewKey, onPreviewActive, setPlayback],
-  );
-
-  const isCurrentTrack = rawPlayback?.item?.id === trackId;
+  const isCurrentTrack = rawPlayback?.item?.id === clipId;
   const isActivePreview =
     previewKey == null || activePreviewKey == null
       ? previewKey == null
@@ -506,22 +497,24 @@ export function WaveformEditor({
   const showPlaybackProgress = isCurrentTrack && isActivePreview;
   const playback = useSimulatedPlaybackProgress(rawPlayback, showPlaybackProgress);
   const clipDuration = Math.max(1, localEnd - localStart);
+  const displayProgressMs =
+    seekPreviewMs ??
+    (showPlaybackProgress && playback?.progress_ms != null ? playback.progress_ms : null);
   const progressInClip =
-    showPlaybackProgress && playback?.progress_ms != null
-      ? Math.min(
-          Math.max(0, playback.progress_ms - localStart),
-          clipDuration,
-        )
+    displayProgressMs != null
+      ? Math.min(Math.max(0, displayProgressMs - localStart), clipDuration)
       : 0;
   const progressPct = Math.min(100, (progressInClip / clipDuration) * 100);
   const playheadPct =
-    showPlaybackProgress && playback?.progress_ms != null
-      ? Math.min(100, Math.max(0, (playback.progress_ms / effectiveDuration) * 100))
-      : null;
+    displayProgressMs != null
+      ? Math.min(100, Math.max(0, (displayProgressMs / effectiveDuration) * 100))
+      : onSeek
+        ? startPct
+        : null;
+  const showPlayhead = playheadPct != null && (onSeek || showPlaybackProgress);
 
   useEffect(() => {
     if (
-      playbackLoading ||
       !showPlaybackProgress ||
       !playback?.is_playing ||
       playback.progress_ms == null ||
@@ -552,21 +545,17 @@ export function WaveformEditor({
       }
       if (onPause) {
         void onPause();
-        return;
       }
-      await callPlayback("pause");
     })();
   }, [
     showPlaybackProgress,
     playback?.is_playing,
     playback?.progress_ms,
-    callPlayback,
-    playbackLoading,
     onPause,
   ]);
 
   const showPlaybackControls =
-    !hidePlaybackControls && (onPreview || onPause || onRestart || sessionId);
+    !hidePlaybackControls && (onPreview || onPause || onRestart);
 
   const wrappedOnPreview = useCallback(() => {
     if (!onPreview) return;
@@ -593,18 +582,15 @@ export function WaveformEditor({
 
   const playbackButtons = (
     <ClipPlaybackButtons
-      sessionId={sessionId}
-      clipId={clipId}
       startMs={localStart}
       endMs={localEnd}
       previewKey={previewKey}
       activePreviewKey={activePreviewKey}
       onPreviewActive={onPreviewActive}
-      playback={sharedPlayback}
-      onPlaybackChange={onPlaybackChange}
       onPreview={onPreview ? wrappedOnPreview : undefined}
       onPause={onPause ? wrappedOnPause : undefined}
       onRestart={onRestart ? wrappedOnRestart : undefined}
+      isPlaying={showPlaybackProgress && !!playback?.is_playing}
     />
   );
 
@@ -680,11 +666,21 @@ export function WaveformEditor({
               className="absolute inset-y-0 bg-emerald-500/20"
               style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
             />
-            {playheadPct != null && (
+            {showPlayhead && (
               <div
-                className="pointer-events-none absolute inset-y-0 z-10 w-0.5 -translate-x-1/2 bg-white shadow-sm dark:bg-zinc-100"
+                className={`absolute inset-y-0 z-20 w-4 -translate-x-1/2 ${
+                  onSeek ? "cursor-grab active:cursor-grabbing" : "pointer-events-none"
+                }`}
                 style={{ left: `${playheadPct}%` }}
-              />
+                onMouseDown={onSeek ? beginPlayheadDrag : undefined}
+                role={onSeek ? "slider" : undefined}
+                aria-label={onSeek ? "Playback position" : undefined}
+                aria-valuemin={onSeek ? localStart : undefined}
+                aria-valuemax={onSeek ? localEnd : undefined}
+                aria-valuenow={onSeek ? displayProgressMs ?? localStart : undefined}
+              >
+                <div className="mx-auto h-full w-0.5 bg-white shadow-sm dark:bg-zinc-100" />
+              </div>
             )}
             {!readOnly && (
               <>
@@ -708,9 +704,19 @@ export function WaveformEditor({
         )}
       </div>
 
-      {showPlaybackControls && isActivePreview && (
+      {(showPlaybackControls || onSeek) && isActivePreview && (
         <div className="mt-2">
-          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+          <div
+            className={`h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800 ${
+              onSeek ? "cursor-pointer" : ""
+            }`}
+            onMouseDown={onSeek ? handleProgressBarPointerDown : undefined}
+            role={onSeek ? "slider" : undefined}
+            aria-label={onSeek ? "Clip playback progress" : undefined}
+            aria-valuemin={onSeek ? 0 : undefined}
+            aria-valuemax={onSeek ? clipDuration : undefined}
+            aria-valuenow={onSeek ? progressInClip : undefined}
+          >
             <div
               className="h-full bg-emerald-500"
               style={{ width: `${progressPct}%` }}

@@ -150,7 +150,10 @@ export function SessionCard({
             <MoreVertical className="size-4" />
           </Button>
           {menuOpen && (
-            <div className="absolute right-0 top-full z-10 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg">
+            <div
+              className="absolute right-0 top-full z-10 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
+              onMouseDown={(event) => event.preventDefault()}
+            >
               {onReview && (
                 <button
                   type="button"
@@ -177,17 +180,19 @@ export function SessionCard({
                   Team reviews
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDelete?.(session.id);
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
-              >
-                <Trash2 className="size-4" />
-                Delete session
-              </button>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDelete(session.id);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <Trash2 className="size-4" />
+                  Delete session
+                </button>
+              )}
             </div>
           )}
         </div>

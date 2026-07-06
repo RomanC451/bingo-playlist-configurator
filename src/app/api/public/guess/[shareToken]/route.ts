@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/api-auth";
 import {
   CLIP_GUESS_GUEST_HEADER,
   GuessShareError,
-  buildGuessChoices,
+  buildGuessChoicesForClip,
   buildGuessClipQueue,
   computeGuessProgress,
   enrichSessionClipsForGuess,
@@ -16,6 +16,8 @@ import { prisma } from "@/lib/db";
 const guessSchema = z.object({
   trackClipId: z.string(),
   guessedTrackClipId: z.string(),
+  replayCount: z.number().int().min(0).max(1000).optional().default(0),
+  timeToGuessMs: z.number().int().min(0).max(3_600_000).optional().default(0),
 });
 
 const guestIdSchema = z.string().uuid();
@@ -49,7 +51,6 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const bingoSession = await resolveGuessShareSession(shareToken);
     const enrichedClips = enrichSessionClipsForGuess(bingoSession.trackClips);
-    const choices = buildGuessChoices(enrichedClips);
 
     const existingGuesses = await prisma.clipGuess.findMany({
       where: { sessionId: bingoSession.id, guestId },
@@ -65,6 +66,9 @@ export async function GET(request: Request, context: RouteContext) {
     const progress = computeGuessProgress(enrichedClips.length, guessedClipIds.size);
     const current = queue[0] ?? null;
     const complete = queue.length === 0;
+    const choices = current
+      ? buildGuessChoicesForClip(enrichedClips, current.id, guestId)
+      : [];
 
     return NextResponse.json({
       session: { id: bingoSession.id, name: bingoSession.name },
@@ -79,6 +83,7 @@ export async function GET(request: Request, context: RouteContext) {
             spotifyTrackId: current.spotifyTrackId,
             startMs: current.startMs,
             endMs: current.endMs,
+            hasUploadedAudio: current.hasUploadedAudio,
           }
         : null,
       guesses: existingGuesses,
@@ -113,6 +118,16 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Invalid track" }, { status: 400 });
     }
 
+    const allowedChoices = buildGuessChoicesForClip(
+      enrichedClips,
+      parsed.data.trackClipId,
+      guestId,
+    );
+    const allowedChoiceIds = new Set(allowedChoices.map((choice) => choice.id));
+    if (!allowedChoiceIds.has(parsed.data.guessedTrackClipId)) {
+      return NextResponse.json({ error: "Invalid guess" }, { status: 400 });
+    }
+
     const existing = await prisma.clipGuess.findUnique({
       where: {
         sessionId_guestId_trackClipId: {
@@ -136,6 +151,8 @@ export async function POST(request: Request, context: RouteContext) {
         trackClipId: parsed.data.trackClipId,
         guessedTrackClipId: parsed.data.guessedTrackClipId,
         correct,
+        replayCount: parsed.data.replayCount,
+        timeToGuessMs: parsed.data.timeToGuessMs,
       },
     });
 
@@ -175,6 +192,7 @@ export async function POST(request: Request, context: RouteContext) {
             spotifyTrackId: current.spotifyTrackId,
             startMs: current.startMs,
             endMs: current.endMs,
+            hasUploadedAudio: current.hasUploadedAudio,
           }
         : null,
       guesses: existingGuesses,

@@ -6,6 +6,7 @@ import {
 import { mapVersionReactions, reactionCountsFromEntries } from "@/lib/clip-reactions";
 import { mapAttentionFlaggedBy, trackAttentionUserInclude } from "@/lib/track-attention";
 import { loadActiveTrackEditLocksForSession } from "@/lib/track-edit-lock-db";
+import { hasUploadedAudio, mapUploadedAudioMetadata } from "@/lib/uploaded-audio";
 import { prisma } from "@/lib/db";
 
 const versionReactionInclude = {
@@ -152,6 +153,7 @@ export async function loadSessionTrackSummaries(sessionId: string) {
       attentionFlaggedBy: mapAttentionFlaggedBy(clip.needsAttentionBy),
       attentionComment: clip.needsAttentionComment,
       editingBy: locksByClipId.get(clip.id) ?? null,
+      hasUploadedAudio: hasUploadedAudio(clip),
     };
   });
 }
@@ -225,10 +227,12 @@ export async function loadTrackDetail(sessionId: string, clipId: string, userId:
       trackName: clip.trackName,
       artistName: clip.artistName,
       albumArtUrl: clip.albumArtUrl,
-      durationMs: clip.durationMs,
+      durationMs: clip.uploadedAudioDurationMs ?? clip.durationMs,
       position: clip.position,
       defaultStartMs: clip.startMs,
       defaultEndMs: clip.endMs,
+      hasUploadedAudio: hasUploadedAudio(clip),
+      uploadedAudio: mapUploadedAudioMetadata(clip),
     },
     playbackRange,
     needsAttention: clip.needsAttention,

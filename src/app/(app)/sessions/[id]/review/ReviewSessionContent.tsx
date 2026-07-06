@@ -19,15 +19,16 @@ import {
   ReviewSessionTrackNavTrigger,
 } from "@/components/ReviewSessionTrackNav";
 import { TrackPageLayout } from "@/components/TrackPageLayout";
-import { SpotifyWebPlaybackGate, useSpotifyWebPlaybackStatus } from "@/components/SpotifyWebPlaybackGate";
+import { UploadedAudioRequiredNotice } from "@/components/UploadedAudioRequiredNotice";
 import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
-import type { MemberReviewProgress, ReviewTrackListItem } from "@/lib/track-review";
-import { isClipReviewBlockedByOther } from "@/lib/track-review";
+import { WaveformEditor, ClipPlaybackButtons } from "@/components/WaveformEditor";
+import { useClipPlayback } from "@/hooks/useClipPlayback";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTrackLocks";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
-import { useSimulatedPlaybackProgress } from "@/hooks/useSimulatedPlaybackProgress";
-import { useSpotifyWebPlayer } from "@/hooks/useSpotifyWebPlayer";
+import { playbackItemId } from "@/lib/uploaded-audio";
+import type { MemberReviewProgress, ReviewTrackListItem } from "@/lib/track-review";
+import { isClipReviewBlockedByOther } from "@/lib/track-review";
 import { readJsonResponse } from "@/lib/read-json-response";
 import { msToLabel } from "@/lib/waveform";
 
@@ -54,7 +55,6 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
   const { data: authSession } = useSession();
   const currentUserId = authSession?.user?.id ?? null;
   const [sessionName, setSessionName] = useState<string | null>(null);
-  const [teamId, setTeamId] = useState<string | null>(null);
   const [currentClip, setCurrentClip] = useState<ReviewTrackListItem | null>(null);
   const [trackList, setTrackList] = useState<ReviewTrackListItem[]>([]);
   const [memberProgress, setMemberProgress] = useState<MemberReviewProgress[]>([]);
@@ -73,10 +73,12 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
     [trackList, polledLocks],
   );
 
-  const { webPlaybackReady } = useSpotifyWebPlaybackStatus(teamId);
-  const webPlayer = useSpotifyWebPlayer(teamId, webPlaybackReady);
-  const simulatedPlayback = useSimulatedPlaybackProgress(webPlayer.playback);
-  const actionLoading = webPlayer.actionLoading;
+  const clipPlayback = useClipPlayback({
+    clipId: currentClip?.id ?? null,
+    hasUploadedAudio: currentClip?.hasUploadedAudio ?? false,
+    sessionId,
+  });
+  const actionLoading = clipPlayback.actionLoading;
 
   const loadState = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) begin();
@@ -102,7 +104,6 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
       }
 
       setSessionName(json.session?.name ?? null);
-      setTeamId(json.session?.teamId ?? null);
       setComplete(json.complete ?? false);
       setProgress(json.progress ?? null);
       const tracks = json.tracks ?? [];
@@ -151,44 +152,81 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
   }, [currentClip, currentUserId, displayTrackList, polledLocks]);
 
   const isCurrentTrack =
-    simulatedPlayback != null &&
+    clipPlayback.playback != null &&
     currentClip != null &&
-    simulatedPlayback.item?.id === currentClip.spotifyTrackId;
+    clipPlayback.playback.item?.id === playbackItemId(currentClip);
 
-  const clipDuration = currentClip ? currentClip.endMs - currentClip.startMs : 1;
-  const progressInClip =
-    isCurrentTrack && simulatedPlayback.progress_ms != null
-      ? Math.min(
-          Math.max(0, simulatedPlayback.progress_ms - currentClip.startMs),
-          clipDuration,
-        )
-      : 0;
-  const progressPct = Math.min(100, (progressInClip / clipDuration) * 100);
-  const isClipPlaying = isCurrentTrack && !!simulatedPlayback?.is_playing;
+  const isClipPlaying = isCurrentTrack && !!clipPlayback.playback?.is_playing;
+
+  const handleClipSeek = useCallback(
+    (positionMs: number) => {
+      if (!currentClip || actionLoading || !clipPlayback.ready) return;
+
+      setError(null);
+      void clipPlayback
+        .seekClip(positionMs, currentClip.startMs, currentClip.endMs)
+        .catch((err) => setError(err instanceof Error ? err.message : "Seek failed"));
+    },
+    [actionLoading, clipPlayback, currentClip],
+  );
 
   const playClip = useCallback(
     async (clip: ReviewTrackListItem) => {
-      if (!webPlaybackReady) {
-        setError("In-browser Spotify preview is not ready for this team.");
+      if (!clipPlayback.ready) {
+        setError(
+          clip.hasUploadedAudio
+            ? "Uploaded audio playback is not ready."
+            : "Upload audio for this track before reviewing.",
+        );
         return;
       }
 
       setError(null);
       try {
-        await webPlayer.playClip(clip.spotifyTrackId, clip.startMs, clip.endMs);
+        await clipPlayback.playClip(clip.id, clip.startMs, clip.endMs);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Playback failed");
       }
     },
-    [webPlaybackReady, webPlayer],
+    [clipPlayback],
   );
 
   useEffect(() => {
-    if (!currentClip || complete || !webPlaybackReady) return;
+    if (!currentClip || complete || !clipPlayback.ready) return;
     if (autoPlayRequested.current === currentClip.id) return;
     autoPlayRequested.current = currentClip.id;
     void playClip(currentClip);
-  }, [currentClip, complete, webPlaybackReady, playClip]);
+  }, [currentClip, complete, clipPlayback.ready, playClip]);
+
+  async function replayClip() {
+    if (!currentClip || actionLoading) return;
+
+    setError(null);
+    try {
+      await clipPlayback.restartClip(
+        currentClip.id,
+        currentClip.startMs,
+        currentClip.endMs,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Playback failed");
+    }
+  }
+
+  async function handleClipPreview() {
+    if (!currentClip || actionLoading) return;
+
+    setError(null);
+    try {
+      await clipPlayback.playOrResumeClip(
+        currentClip.id,
+        currentClip.startMs,
+        currentClip.endMs,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Playback failed");
+    }
+  }
 
   async function submitVerdict(verdict: "OK" | "NOT_OK", comment?: string) {
     if (!currentClip || actionLoading) return;
@@ -233,16 +271,6 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save review");
-    }
-  }
-
-  async function togglePlayPause() {
-    if (!currentClip || actionLoading) return;
-
-    if (isClipPlaying) {
-      await webPlayer.pause();
-    } else {
-      await playClip(currentClip);
     }
   }
 
@@ -304,15 +332,7 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
       />
 
       <div className="min-w-0">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <h1 className="text-2xl font-semibold">Review clips</h1>
-          <SpotifyVolumeSlider
-            compact
-            volume={webPlayer.volume}
-            onVolumeChange={webPlayer.setVolume}
-            disabled={!webPlaybackReady}
-          />
-        </div>
+        <h1 className="text-2xl font-semibold">Review clips</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Listen to each clip and mark it OK or Not OK. Your review advances automatically.
         </p>
@@ -326,11 +346,10 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
       </div>
 
       <div className="mt-8 space-y-6">
-        <SpotifyWebPlaybackGate teamId={teamId}>
-      <div className="space-y-6">
-        {(error || webPlayer.error) && (
+        <div className="space-y-6">
+        {(error || clipPlayback.error) && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-            {error ?? webPlayer.error}
+            {error ?? clipPlayback.error}
           </div>
         )}
 
@@ -355,6 +374,10 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
           </div>
         ) : currentClip ? (
           <>
+            {!currentClip.hasUploadedAudio ? (
+              <UploadedAudioRequiredNotice sessionId={sessionId} />
+            ) : null}
+
             <div className="flex items-center gap-4">
               {progress && (
                 <p className="text-sm text-zinc-500">
@@ -379,28 +402,52 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
                 )}
               </p>
 
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                <div
-                  className="h-full bg-emerald-500"
-                  style={{ width: `${progressPct}%` }}
+              <div className="mt-4">
+                <WaveformEditor
+                  readOnly
+                  compact
+                  hidePlaybackControls
+                  clipId={currentClip.id}
+                  sessionId={sessionId}
+                  trackId={currentClip.spotifyTrackId}
+                  trackName={currentClip.trackName}
+                  artistName={currentClip.artistName}
+                  albumArtUrl={currentClip.albumArtUrl}
+                  durationMs={currentClip.durationMs}
+                  startMs={currentClip.startMs}
+                  endMs={currentClip.endMs}
+                  playback={clipPlayback.playback}
+                  onPause={
+                    clipPlayback.ready ? () => void clipPlayback.pause() : undefined
+                  }
+                  onSeek={clipPlayback.ready ? handleClipSeek : undefined}
                 />
               </div>
-              <p className="mt-1 text-xs text-zinc-500">
-                {msToLabel(progressInClip)} / {msToLabel(clipDuration)} within clip
-              </p>
 
-              <div className="mt-6 flex flex-wrap gap-3">
+              <div className="mt-6 flex items-center justify-between gap-6">
+                <ClipPlaybackButtons
+                  size="lg"
+                  startMs={currentClip.startMs}
+                  endMs={currentClip.endMs}
+                  isPlaying={isClipPlaying}
+                  disabled={actionLoading || !clipPlayback.ready}
+                  onPreview={() => void handleClipPreview()}
+                  onPause={() => void clipPlayback.pause()}
+                  onRestart={() => void replayClip()}
+                />
+                <SpotifyVolumeSlider
+                  compact
+                  className="w-28 shrink-0"
+                  volume={clipPlayback.volume}
+                  onVolumeChange={clipPlayback.setVolume}
+                  disabled={!clipPlayback.ready}
+                />
+              </div>
+
+              <div className="mt-4 flex justify-center gap-3">
                 <button
                   type="button"
-                  disabled={actionLoading || !webPlaybackReady}
-                  onClick={() => void togglePlayPause()}
-                  className="rounded-lg border border-zinc-300 px-4 py-2 disabled:opacity-50 dark:border-zinc-700"
-                >
-                  {isClipPlaying ? "Pause" : "Replay"}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionLoading || !webPlaybackReady}
+                  disabled={actionLoading || !clipPlayback.ready}
                   onClick={() => void submitVerdict("OK")}
                   className="inline-flex min-w-[6rem] items-center justify-center rounded-lg bg-emerald-600 px-6 py-2 font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                 >
@@ -408,7 +455,7 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
                 </button>
                 <button
                   type="button"
-                  disabled={actionLoading || !webPlaybackReady}
+                  disabled={actionLoading || !clipPlayback.ready}
                   onClick={() => setNotOkDialogOpen(true)}
                   className="inline-flex min-w-[6rem] items-center justify-center rounded-lg bg-rose-600 px-6 py-2 font-medium text-white hover:bg-rose-700 disabled:opacity-50"
                 >
@@ -438,7 +485,6 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
           Back to editor
         </Link>
       </div>
-      </SpotifyWebPlaybackGate>
       </div>
 
       <ReviewNotOkDialog

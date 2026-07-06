@@ -46,7 +46,7 @@ function toSession(session: HomeSessionSummary, whenIso: string): Session {
   };
 }
 
-export default function HomePage() {
+export default function DashboardPage() {
   const [data, setData] = useState<HomeData | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);

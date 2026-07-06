@@ -1,5 +1,6 @@
 import { getLatestVersion, resolvePlaybackRange, type PlaybackRange } from "@/lib/clip-selection";
 import type { TrackEditingBy } from "@/lib/track-edit-lock";
+import { hasUploadedAudio } from "@/lib/uploaded-audio";
 import type { TrackClipReviewVerdict } from "@prisma/client";
 
 export type TrackClipReviewRecord = {
@@ -20,6 +21,7 @@ export type TrackClipWithProposal = {
   position: number;
   startMs: number;
   endMs: number;
+  uploadedAudioKey?: string | null;
   proposal: {
     versions: Array<{
       id: string;
@@ -67,6 +69,7 @@ export type ReviewQueueItem = {
   startMs: number;
   endMs: number;
   playbackRange: PlaybackRange;
+  hasUploadedAudio: boolean;
 };
 
 export function isClipReviewBlockedByOther(
@@ -109,6 +112,7 @@ export function buildReviewQueue(
         startMs: playbackRange.startMs,
         endMs: playbackRange.endMs,
         playbackRange,
+        hasUploadedAudio: hasUploadedAudio(clip),
       };
     });
 }
@@ -264,6 +268,7 @@ export type ReviewTrackListItem = {
   reviewStatus: ReviewTrackStatus;
   reviews: TrackClipReviewSummary[];
   editingBy: TrackEditingBy | null;
+  hasUploadedAudio: boolean;
 };
 
 type ReviewWithUser = TrackClipReviewRecord & {
@@ -325,6 +330,7 @@ function mapClipToListItem(
     reviewStatus,
     reviews: mapReviewsForTrack(clip, teamReviewsByClipId.get(clip.id) ?? []),
     editingBy: locksByClipId?.get(clip.id) ?? null,
+    hasUploadedAudio: hasUploadedAudio(clip),
   };
 }
 

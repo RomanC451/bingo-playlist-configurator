@@ -14,10 +14,7 @@ A user's membership on a Team. Role is `ADMIN` or `MEMBER`.
 - **MEMBER** — propose clips, vote, import playlists, playback
 
 ### SpotifyConnection
-OAuth tokens for one Spotify account linked to a Team. Team admins connect, switch, or disconnect. All members use the team account for import and playback. Stores granted OAuth `scope` (including `streaming` for in-browser preview).
-
-### WebPlayback
-In-browser clip preview on track edit and review pages via the Spotify Web Playback SDK. Requires Premium on the linked team account, the `streaming` OAuth scope, and a one-time team re-link after scope is added. Only one active stream per SpotifyConnection.
+OAuth tokens for one Spotify account linked to a Team. Team admins connect, switch, or disconnect. All members use the team account for playlist import and **ConnectPlayback** on bingo night.
 
 ### ConnectPlayback
 Playback on the play session page via Spotify Connect — audio plays on an external desktop, mobile, or speaker device selected by the user.
@@ -53,15 +50,25 @@ An anonymous visitor's single locked guess for which **Track** (`TrackClip`) a h
 Opaque ID stored in the visitor's browser (`localStorage`), not a **User**. Used to resume ClipGuess progress across visits.
 
 ### Guess share link
-A token-gated public URL (`/guess/[shareToken]`) scoped to one **BingoSession**. Team admins enable, disable, or rotate the token. Playback uses the team's **WebPlayback** credentials via a public API.
+A token-gated public URL (`/guess/[shareToken]`) scoped to one **BingoSession**. Team admins enable, disable, or rotate the token. Playback requires **UploadedAudio** on the heard clip.
+
+### UploadedAudio
+An audio file stored in AWS S3 for a **Track** (`TrackClip`). Required for edit, review, and guess preview. Upload only files you have rights to use.
+
+### SessionAudioUpload
+Bulk MP3 upload flow on the **BingoSession** edit page: select files → review dialog → assign every **Track** → submit to S3. Replaces per-track upload UI.
+
+### AudioFileAssignment
+Mapping of a local MP3 file to a **Track** during **SessionAudioUpload**, either from fuzzy filename matching or manual selection in the review dialog.
 
 ## Access rules
 
 - Session access requires membership on the session's Team.
 - **ClipGuess** is public via an enabled guess share link; no account required.
-- Spotify credentials are per-team (`SpotifyConnection` on Team). Team admins link one shared account; any member can import and control playback on that account's devices.
-- Edit and review preview uses **WebPlayback** in the browser. The play session page uses **ConnectPlayback** on external devices.
-- Only one active Spotify stream per team account at a time.
+- Spotify credentials are per-team (`SpotifyConnection` on Team). Team admins link one shared account; any member can import playlists and control **ConnectPlayback** on that account's devices.
+- Edit, review, and guess preview require **UploadedAudio** on each **Track**. The play session page uses **ConnectPlayback** on external devices.
+- **ClipGuess** public audio streams require a valid share token and guest id; uploaded audio is proxied through the app (S3 bucket stays private).
+- Only one active Spotify stream per team account at a time (bingo night **ConnectPlayback**).
 - Team join is admin-only: add member by email (no accept flow).
 
 ## Bootstrap

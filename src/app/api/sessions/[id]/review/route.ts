@@ -69,6 +69,7 @@ function mapQueueItem(item: ReviewQueueItem) {
     startMs: item.startMs,
     endMs: item.endMs,
     playbackRange: item.playbackRange,
+    hasUploadedAudio: item.hasUploadedAudio,
   };
 }
 

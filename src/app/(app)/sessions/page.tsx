@@ -19,6 +19,7 @@ import { SessionTeamProgressDialog } from "@/components/SessionTeamProgressDialo
 import { SessionsPageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { errorMessageFromBody } from "@/lib/api-errors";
+import { isTeamManagerRole, type TeamRoleValue } from "@/lib/team-client";
 import { readJsonResponse } from "@/lib/read-json-response";
 
 function SessionsContent() {
@@ -45,6 +46,7 @@ function SessionsContent() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [teamProgressSessionId, setTeamProgressSessionId] = useState<string | null>(null);
+  const [currentUserTeamRole, setCurrentUserTeamRole] = useState<TeamRoleValue | null>(null);
 
   const loadAll = useCallback(async () => {
     begin();
@@ -57,12 +59,16 @@ function SessionsContent() {
           activeTeamId: string | null;
           teams: {
             id: string;
-            members: { user: MemberUser }[];
+            members: { role: TeamRoleValue; user: MemberUser }[];
           }[];
         }>(teamsRes);
         teamId = teamsData.activeTeamId;
         const activeTeam = teamsData.teams.find((team) => team.id === teamId);
         nextTeamMembers = activeTeam?.members.map((member) => member.user) ?? [];
+        const myMembership = activeTeam?.members.find(
+          (member) => member.user.id === currentUserId,
+        );
+        setCurrentUserTeamRole(myMembership?.role ?? null);
       }
 
       const sessionsQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
@@ -127,7 +133,7 @@ function SessionsContent() {
     } finally {
       end();
     }
-  }, [begin, end]);
+  }, [begin, end, currentUserId]);
 
   useEffect(() => {
     const spotify = searchParams.get("spotify");
@@ -151,6 +157,7 @@ function SessionsContent() {
     return () => window.removeEventListener("active-team-changed", onTeamChange);
   }, [loadAll]);
 
+  const canDeleteSessions = currentUserTeamRole != null && isTeamManagerRole(currentUserTeamRole);
   const spotify = flash?.spotify ?? null;
   const spotifyError = flash?.spotifyError ?? null;
   const spotifyDetail = flash?.spotifyDetail ?? null;
@@ -400,10 +407,16 @@ function SessionsContent() {
                 onEdit={(id) => router.push(`/sessions/${id}/edit`)}
                 onReview={(id) => router.push(`/sessions/${id}/review`)}
                 onTeamProgress={(id) => setTeamProgressSessionId(id)}
-                onDelete={() => {
-                  setDeleteError(null);
-                  setPendingDelete({ id: session.id, name: session.name });
-                }}
+                onDelete={
+                  canDeleteSessions
+                    ? (id) => {
+                        const target = sessions.find((entry) => entry.id === id);
+                        if (!target) return;
+                        setDeleteError(null);
+                        setPendingDelete({ id: target.id, name: target.name });
+                      }
+                    : undefined
+                }
               />
             </li>
           ))}

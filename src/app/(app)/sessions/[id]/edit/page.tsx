@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
-import { ClipGuessShareCard } from "@/components/ClipGuessShareCard";
+import { SessionEditActionsMenu } from "@/components/SessionEditActionsMenu";
 import { SessionEditorsList, type SessionEditorSummary } from "@/components/SessionEditorsList";
 import { SessionTeamProgressDialog } from "@/components/SessionTeamProgressDialog";
 import { TrackClipDot, TrackClipStatusText, TrackNeedsAttentionText, trackListLinkClassName } from "@/components/TrackClipStatus";
 import { TrackEditingIndicator } from "@/components/TrackEditingIndicator";
 import { TrackReactionCounts } from "@/components/TrackReactionCounts";
+import { TrackUploadedAudioIndicator } from "@/components/TrackUploadedAudioIndicator";
 import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTrackLocks";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { EditSessionPageSkeleton } from "@/components/page-skeletons";
@@ -53,6 +54,7 @@ interface TrackSummary {
   attentionFlaggedBy: AttentionFlaggedBy | null;
   attentionComment: string | null;
   editingBy?: TrackEditingBy | null;
+  hasUploadedAudio: boolean;
 }
 
 interface BingoSession {
@@ -65,7 +67,10 @@ interface BingoSession {
 
 export default function EditSessionPage() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const sessionId = params.id as string;
+  const shouldAutoOpenUpload = searchParams.get("uploadAudio") === "1";
   const { data: authSession } = useSession();
   const currentUserId = authSession?.user?.id ?? null;
   useRecordSessionWork(sessionId);
@@ -133,34 +138,25 @@ export default function EditSessionPage() {
             Each track has one shared clip. Save a new version when you change the range.
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2 sm:flex-nowrap">
-        <button
-          type="button"
-          onClick={() => setTeamProgressOpen(true)}
-          className="inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900 sm:w-auto"
-        >
-          Team reviews
-        </button>
-        <Link
-          href={`/sessions/${sessionId}/review`}
-          className="inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900 sm:w-auto"
-        >
-          {getReviewActionLabel(session.userReviewProgress.reviewed)}
-        </Link>
-        <Link
-          href={`/sessions/${sessionId}/play`}
-          className="inline-flex w-full items-center justify-center whitespace-nowrap rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 sm:w-auto"
-        >
-          Start playback
-        </Link>
-        </div>
+        <SessionEditActionsMenu
+          sessionId={sessionId}
+          reviewLabel={getReviewActionLabel(session.userReviewProgress.reviewed)}
+          uploadTracks={session.tracks.map((track) => ({
+            id: track.id,
+            trackName: track.trackName,
+            artistName: track.artistName,
+            hasUploadedAudio: track.hasUploadedAudio,
+          }))}
+          onUploadComplete={() => void loadSession()}
+          onTeamProgress={() => setTeamProgressOpen(true)}
+          autoOpenUpload={shouldAutoOpenUpload}
+          onAutoOpenHandled={() => {
+            router.replace(`/sessions/${sessionId}/edit`);
+          }}
+        />
       </div>
 
       <SessionEditorsList editors={session.editors ?? []} />
-
-      <div className="mt-6">
-        <ClipGuessShareCard sessionId={sessionId} />
-      </div>
 
       {session.tracks.length === 0 ? (
         <div className="mt-8 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
@@ -196,7 +192,10 @@ export default function EditSessionPage() {
                   <TrackClipDot playbackRange={range} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{track.trackName}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate font-medium">{track.trackName}</p>
+                    <TrackUploadedAudioIndicator hasUploadedAudio={track.hasUploadedAudio} />
+                  </div>
                   <p className="truncate text-sm text-muted-foreground">{track.artistName}</p>
                   {track.editingBy && (
                     <TrackEditingIndicator editingBy={track.editingBy} className="mt-1" />

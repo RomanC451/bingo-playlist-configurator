@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
+import { deleteSessionAudioFolder, isS3AudioConfigError } from "@/lib/s3-audio";
 import {
-  requireSessionAccess,
   apiErrorResponse,
+  requireSessionAccess,
+  requireSessionAdmin,
 } from "@/lib/team-auth";
 import { loadSessionEditors, loadSessionTrackSummaries } from "@/lib/track-summaries";
 import { loadActiveTrackEditLocksForSession } from "@/lib/track-edit-lock-db";
@@ -79,7 +81,16 @@ export async function DELETE(_request: Request, context: RouteContext) {
   const { id } = await context.params;
 
   try {
-    await requireSessionAccess(id, session!.user!.id);
+    await requireSessionAdmin(id, session!.user!.id);
+
+    try {
+      await deleteSessionAudioFolder(id);
+    } catch (err) {
+      if (!isS3AudioConfigError(err)) {
+        throw err;
+      }
+    }
+
     await prisma.bingoSession.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (err) {

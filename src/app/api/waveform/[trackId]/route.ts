@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
+import { prisma } from "@/lib/db";
 import { getTrack } from "@/lib/spotify";
+import { ensureClipUploadedWaveform } from "@/lib/server-audio-waveform";
 import { requireSessionAccess, teamAccessResponse } from "@/lib/team-auth";
 import { placeholderWaveform } from "@/lib/waveform";
+import { hasUploadedAudio } from "@/lib/uploaded-audio";
 
 export const runtime = "nodejs";
 
@@ -27,12 +30,31 @@ export async function GET(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Session has no team" }, { status: 400 });
     }
 
-    let durationMs = 180_000;
-    try {
-      const track = await getTrack(teamId, trackId);
-      durationMs = track.duration_ms;
-    } catch {
-      // Use default duration when Spotify metadata is unavailable.
+    const clip = await prisma.trackClip.findFirst({
+      where: { sessionId, spotifyTrackId: trackId },
+      select: {
+        id: true,
+        durationMs: true,
+        uploadedAudioDurationMs: true,
+        uploadedAudioKey: true,
+      },
+    });
+
+    if (clip && hasUploadedAudio(clip)) {
+      const waveform = await ensureClipUploadedWaveform(clip.id);
+      if (waveform) {
+        return NextResponse.json(waveform);
+      }
+    }
+
+    let durationMs = clip?.uploadedAudioDurationMs ?? clip?.durationMs ?? 180_000;
+    if (!clip || !hasUploadedAudio(clip)) {
+      try {
+        const track = await getTrack(teamId, trackId);
+        durationMs = track.duration_ms;
+      } catch {
+        // Use default duration when Spotify metadata is unavailable.
+      }
     }
 
     return NextResponse.json(placeholderWaveform(durationMs));

@@ -3,16 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CLIP_GUESS_GUEST_HEADER,
+  computeTimeToGuessMs,
   type GuessChoice,
   type GuessProgress,
 } from "@/lib/clip-guess-shared";
-import { useClipGuessGuestId, usePublicGuessPlaybackStatus } from "@/hooks/useClipGuessGuest";
+import { useClipGuessGuestId } from "@/hooks/useClipGuessGuest";
+import { UploadedAudioRequiredNotice } from "@/components/UploadedAudioRequiredNotice";
+import { useClipPlayback } from "@/hooks/useClipPlayback";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { useSimulatedPlaybackProgress } from "@/hooks/useSimulatedPlaybackProgress";
-import { useSpotifyWebPlayer } from "@/hooks/useSpotifyWebPlayer";
+import { playbackItemId } from "@/lib/uploaded-audio";
 import { readJsonResponse } from "@/lib/read-json-response";
 import { msToLabel } from "@/lib/waveform";
 import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ClipPlaybackButtons } from "@/components/WaveformEditor";
+import { ClipGuessEntryScreen } from "@/app/guess/[shareToken]/ClipGuessEntryScreen";
 
 type CurrentClip = {
   id: string;
@@ -21,6 +27,7 @@ type CurrentClip = {
   spotifyTrackId: string;
   startMs: number;
   endMs: number;
+  hasUploadedAudio: boolean;
 };
 
 type GuessAnswer = {
@@ -113,6 +120,7 @@ function BlurredMysteryTrack() {
 
 export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
   const [sessionName, setSessionName] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [choices, setChoices] = useState<GuessChoice[]>([]);
   const [currentClip, setCurrentClip] = useState<CurrentClip | null>(null);
   const [progress, setProgress] = useState<GuessProgress | null>(null);
@@ -130,14 +138,27 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
   >("unplayed");
   const [searchQuery, setSearchQuery] = useState("");
   const [guestGuesses, setGuestGuesses] = useState<GuestGuess[]>([]);
+  const [hasStarted, setHasStarted] = useState(false);
   const { loading, begin, end } = useDelayedLoading();
   const autoPlayRequested = useRef<string | null>(null);
+  const clipEngagementRef = useRef<{
+    clipId: string | null;
+    startedAt: number | null;
+    replayCount: number;
+  }>({
+    clipId: null,
+    startedAt: null,
+    replayCount: 0,
+  });
 
   const guestId = useClipGuessGuestId(shareToken);
-  const { webPlaybackReady, error: playbackStatusError } =
-    usePublicGuessPlaybackStatus(shareToken);
-  const webPlayer = useSpotifyWebPlayer({ shareToken, enabled: webPlaybackReady });
-  const simulatedPlayback = useSimulatedPlaybackProgress(webPlayer.playback);
+  const clipPlayback = useClipPlayback({
+    clipId: currentClip?.id ?? null,
+    hasUploadedAudio: currentClip?.hasUploadedAudio ?? false,
+    shareToken,
+    guestId,
+  });
+  const simulatedPlayback = useSimulatedPlaybackProgress(clipPlayback.playback);
 
   const filteredChoices = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -148,6 +169,26 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
         choice.artistName.toLowerCase().includes(query),
     );
   }, [choices, searchQuery]);
+
+  const selectedGuessIsValid =
+    selectedGuess != null && choices.some((choice) => choice.id === selectedGuess);
+
+  useEffect(() => {
+    if (selectedGuess && !choices.some((choice) => choice.id === selectedGuess)) {
+      setSelectedGuess(null);
+    }
+  }, [choices, selectedGuess]);
+
+  useEffect(() => {
+    if (!currentClip) return;
+    if (clipEngagementRef.current.clipId !== currentClip.id) {
+      clipEngagementRef.current = {
+        clipId: currentClip.id,
+        startedAt: null,
+        replayCount: 0,
+      };
+    }
+  }, [currentClip?.id]);
 
   const loadState = useCallback(async () => {
     if (!guestId) return;
@@ -174,6 +215,7 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
       }
 
       setSessionName(json.session?.name ?? null);
+      setSessionId(json.session?.id ?? null);
       setChoices(json.choices ?? []);
       setProgress(json.progress ?? null);
       setComplete(json.complete ?? false);
@@ -199,7 +241,7 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
   const isCurrentTrack =
     simulatedPlayback != null &&
     currentClip != null &&
-    simulatedPlayback.item?.id === currentClip.spotifyTrackId;
+    simulatedPlayback.item?.id === playbackItemId(currentClip);
 
   const clipDuration = currentClip ? currentClip.endMs - currentClip.startMs : 1;
   const progressInClip =
@@ -213,54 +255,122 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
 
   const startClip = useCallback(
     async (clip: CurrentClip) => {
-      if (!webPlaybackReady) {
-        setError("Spotify playback is not ready.");
+      if (!clipPlayback.ready) {
+        setError(
+          clip.hasUploadedAudio
+            ? "Uploaded audio playback is not ready."
+            : "This clip has no uploaded audio yet.",
+        );
         return;
       }
 
       setError(null);
       try {
-        await webPlayer.playClip(clip.spotifyTrackId, clip.startMs, clip.endMs);
+        await clipPlayback.playClip(clip.id, clip.startMs, clip.endMs);
+        if (clipEngagementRef.current.clipId === clip.id && clipEngagementRef.current.startedAt == null) {
+          clipEngagementRef.current.startedAt = Date.now();
+        }
         setClipPhase("playing");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Playback failed");
       }
     },
-    [webPlaybackReady, webPlayer],
+    [clipPlayback],
   );
 
   const pauseClip = useCallback(async () => {
-    await webPlayer.pause();
+    await clipPlayback.pause();
     setClipPhase("paused");
-  }, [webPlayer]);
+  }, [clipPlayback]);
 
   const resumeClip = useCallback(async () => {
-    await webPlayer.resume();
+    await clipPlayback.resume();
     setClipPhase("playing");
-  }, [webPlayer]);
+  }, [clipPlayback]);
+
+  const replayClip = useCallback(async () => {
+    if (!currentClip) return;
+    if (!clipPlayback.ready) {
+      setError(
+        currentClip.hasUploadedAudio
+          ? "Uploaded audio playback is not ready."
+          : "This clip has no uploaded audio yet.",
+      );
+      return;
+    }
+
+    setError(null);
+    try {
+      await clipPlayback.restartClip(
+        currentClip.id,
+        currentClip.startMs,
+        currentClip.endMs,
+      );
+      if (clipEngagementRef.current.clipId === currentClip.id) {
+        clipEngagementRef.current.replayCount += 1;
+      }
+      setClipPhase("playing");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Playback failed");
+    }
+  }, [clipPlayback, currentClip]);
+
+  const handleClipPreview = useCallback(() => {
+    if (!currentClip) return;
+    if (clipPhase === "paused") {
+      void resumeClip();
+      return;
+    }
+    if (clipPhase === "ended") {
+      void replayClip();
+      return;
+    }
+    void startClip(currentClip);
+  }, [clipPhase, currentClip, replayClip, resumeClip, startClip]);
 
   useEffect(() => {
-    if (!currentClip || complete || !webPlaybackReady || lastResult) return;
+    if (!hasStarted || !currentClip || complete || !clipPlayback.ready || lastResult) return;
     if (autoPlayRequested.current === currentClip.id) return;
     autoPlayRequested.current = currentClip.id;
     void startClip(currentClip);
-  }, [currentClip, complete, webPlaybackReady, lastResult, startClip]);
+  }, [hasStarted, currentClip, complete, clipPlayback.ready, lastResult, startClip]);
+
+  const handleEntryStart = useCallback(async () => {
+    setHasStarted(true);
+    if (!currentClip || complete || lastResult || !clipPlayback.ready) {
+      return;
+    }
+    autoPlayRequested.current = currentClip.id;
+    await startClip(currentClip);
+  }, [clipPlayback.ready, complete, currentClip, lastResult, startClip]);
 
   useEffect(() => {
     if (clipPhase !== "playing" || clipDuration <= 0) return;
     if (progressInClip >= clipDuration - 150) {
       setClipPhase("ended");
-      void webPlayer.pause();
+      void clipPlayback.pause();
     }
-  }, [clipPhase, progressInClip, clipDuration, webPlayer]);
+  }, [clipPhase, progressInClip, clipDuration, clipPlayback]);
 
   async function submitGuess() {
-    if (!guestId || !currentClip || !selectedGuess || submitting || lastResult) return;
+    if (!guestId || !currentClip || !selectedGuessIsValid || submitting || lastResult) return;
 
     setSubmitting(true);
     setError(null);
+    await clipPlayback.pause();
+    setClipPhase("paused");
 
     try {
+      const engagement = clipEngagementRef.current;
+      const replayCount =
+        engagement.clipId === currentClip.id ? engagement.replayCount : 0;
+      const clipDurationMs = currentClip.endMs - currentClip.startMs;
+      const elapsedMs =
+        engagement.clipId === currentClip.id && engagement.startedAt != null
+          ? Math.max(0, Date.now() - engagement.startedAt)
+          : 0;
+      const timeToGuessMs = computeTimeToGuessMs(replayCount, clipDurationMs, elapsedMs);
+
       const res = await fetch(`/api/public/guess/${encodeURIComponent(shareToken)}`, {
         method: "POST",
         headers: {
@@ -270,6 +380,8 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
         body: JSON.stringify({
           trackClipId: currentClip.id,
           guessedTrackClipId: selectedGuess,
+          replayCount,
+          timeToGuessMs,
         }),
       });
 
@@ -310,6 +422,7 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
         headers: { [CLIP_GUESS_GUEST_HEADER]: guestId },
       });
       const json = await readJsonResponse<{
+        choices?: GuessChoice[];
         complete?: boolean;
         current?: CurrentClip | null;
         progress?: GuessProgress;
@@ -322,6 +435,7 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
         return;
       }
 
+      setChoices(json.choices ?? []);
       setCurrentClip(json.current ?? null);
       setComplete(json.complete ?? false);
       setProgress(json.progress ?? null);
@@ -329,8 +443,20 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
       setSelectedGuess(null);
       setLastResult(null);
       setSearchQuery("");
+      setError(null);
       setClipPhase("unplayed");
       autoPlayRequested.current = null;
+
+      const nextClip = json.current ?? null;
+      if (nextClip && hasStarted && clipPlayback.ready) {
+        autoPlayRequested.current = nextClip.id;
+        try {
+          await clipPlayback.playClip(nextClip.id, nextClip.startMs, nextClip.endMs);
+          setClipPhase("playing");
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Playback failed");
+        }
+      }
     })();
   }
 
@@ -352,6 +478,17 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
     );
   }
 
+  if (!complete && !hasStarted) {
+    return (
+      <ClipGuessEntryScreen
+        sessionName={sessionName}
+        progress={progress}
+        onStart={() => void handleEntryStart()}
+        loading={clipPlayback.actionLoading}
+      />
+    );
+  }
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
       <header className="mb-8 text-center">
@@ -362,27 +499,17 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
         </p>
       </header>
 
-      {(error || webPlayer.error || playbackStatusError) && (
+      {(error || clipPlayback.error) && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-          {error ?? webPlayer.error ?? playbackStatusError}
+          {error ?? clipPlayback.error}
         </div>
       )}
 
-      {!webPlaybackReady && playbackStatusError && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
-          <p className="font-medium">Playback unavailable</p>
-          <p className="mt-1 text-sm">{playbackStatusError}</p>
+      {currentClip && !currentClip.hasUploadedAudio ? (
+        <div className="mb-4">
+          <UploadedAudioRequiredNotice sessionId={sessionId ?? undefined} />
         </div>
-      )}
-
-      <div className="mb-4 flex justify-end">
-        <SpotifyVolumeSlider
-          compact
-          volume={webPlayer.volume}
-          onVolumeChange={webPlayer.setVolume}
-          disabled={!webPlaybackReady}
-        />
-      </div>
+      ) : null}
 
       {complete && !currentClip && !lastResult ? (
         <GuessResultsSummary guesses={guestGuesses} />
@@ -407,45 +534,6 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
                 <p className="mt-1 text-xs text-zinc-500">
                   {msToLabel(progressInClip)} / {msToLabel(clipDuration)} within clip
                 </p>
-
-                <div className="mt-4">
-                  {clipPhase === "ended" ? (
-                    <button
-                      type="button"
-                      disabled
-                      className="rounded-lg border border-zinc-300 px-4 py-2 opacity-50 dark:border-zinc-700"
-                    >
-                      Clip finished
-                    </button>
-                  ) : clipPhase === "playing" ? (
-                    <button
-                      type="button"
-                      disabled={webPlayer.actionLoading || !webPlaybackReady}
-                      onClick={() => void pauseClip()}
-                      className="rounded-lg border border-zinc-300 px-4 py-2 disabled:opacity-50 dark:border-zinc-700"
-                    >
-                      Pause
-                    </button>
-                  ) : clipPhase === "paused" ? (
-                    <button
-                      type="button"
-                      disabled={webPlayer.actionLoading || !webPlaybackReady}
-                      onClick={() => void resumeClip()}
-                      className="rounded-lg border border-zinc-300 px-4 py-2 disabled:opacity-50 dark:border-zinc-700"
-                    >
-                      Play
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={webPlayer.actionLoading || !webPlaybackReady}
-                      onClick={() => currentClip && void startClip(currentClip)}
-                      className="rounded-lg border border-zinc-300 px-4 py-2 disabled:opacity-50 dark:border-zinc-700"
-                    >
-                      Play
-                    </button>
-                  )}
-                </div>
               </>
             ) : (
               <div
@@ -483,6 +571,30 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
                 </button>
               </div>
             )}
+
+            <div className="mt-4 flex items-center justify-between gap-6">
+              {!lastResult ? (
+                <ClipPlaybackButtons
+                  size="lg"
+                  startMs={currentClip.startMs}
+                  endMs={currentClip.endMs}
+                  isPlaying={clipPhase === "playing"}
+                  disabled={clipPlayback.actionLoading || !clipPlayback.ready}
+                  onPreview={handleClipPreview}
+                  onPause={() => void pauseClip()}
+                  onRestart={() => void replayClip()}
+                />
+              ) : (
+                <div />
+              )}
+              <SpotifyVolumeSlider
+                compact
+                className="w-28 shrink-0"
+                volume={clipPlayback.volume}
+                onVolumeChange={clipPlayback.setVolume}
+                disabled={!clipPlayback.ready}
+              />
+            </div>
           </div>
 
           {!lastResult && (
@@ -498,48 +610,50 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
                     className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-700 dark:bg-zinc-900"
                   />
                 </div>
-                <ul className="max-h-80 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {filteredChoices.length === 0 ? (
-                    <li className="px-4 py-6 text-center text-sm text-zinc-500">
-                      No songs match your search.
-                    </li>
-                  ) : (
-                    filteredChoices.map((choice) => {
-                      const isSelected = selectedGuess === choice.id;
-                      return (
-                        <li key={choice.id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedGuess(choice.id)}
-                            className={`flex w-full items-center gap-3 border-l-2 px-4 py-3 text-left transition-colors ${
-                              isSelected
-                                ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40"
-                                : "border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                            }`}
-                          >
-                            <span className="min-w-0">
-                              <span
-                                className={`block truncate font-medium ${
-                                  isSelected ? "text-emerald-700 dark:text-emerald-300" : ""
-                                }`}
-                              >
-                                {choice.trackName}
+                <ScrollArea className="h-80">
+                  <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    {filteredChoices.length === 0 ? (
+                      <li className="px-4 py-6 text-center text-sm text-zinc-500">
+                        No songs match your search.
+                      </li>
+                    ) : (
+                      filteredChoices.map((choice) => {
+                        const isSelected = selectedGuess === choice.id;
+                        return (
+                          <li key={choice.id}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedGuess(choice.id)}
+                              className={`flex w-full items-center gap-3 border-l-2 px-4 py-3 text-left transition-colors ${
+                                isSelected
+                                  ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40"
+                                  : "border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                              }`}
+                            >
+                              <span className="min-w-0">
+                                <span
+                                  className={`block truncate font-medium ${
+                                    isSelected ? "text-emerald-700 dark:text-emerald-300" : ""
+                                  }`}
+                                >
+                                  {choice.trackName}
+                                </span>
+                                <span className="block truncate text-sm text-zinc-500">
+                                  {choice.artistName}
+                                </span>
                               </span>
-                              <span className="block truncate text-sm text-zinc-500">
-                                {choice.artistName}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })
-                  )}
-                </ul>
+                            </button>
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                </ScrollArea>
               </div>
 
               <button
                 type="button"
-                disabled={!selectedGuess || submitting || !webPlaybackReady}
+                disabled={!selectedGuessIsValid || submitting || !clipPlayback.ready}
                 onClick={() => void submitGuess()}
                 className="w-full rounded-lg bg-emerald-600 py-3 font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
               >
