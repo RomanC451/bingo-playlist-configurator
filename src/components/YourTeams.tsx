@@ -29,6 +29,7 @@ import { readJsonResponse } from "@/lib/read-json-response";
 import { notifyActiveTeamChanged, persistActiveTeam } from "@/lib/team-client";
 
 import { MemberAvatarStack } from "@/components/MemberAvatarStack";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 
 interface TeamSummary {
   id: string;
@@ -191,6 +192,8 @@ export function YourTeams() {
 
   return (
     <div>
+      <TutorialWelcomeBanner tutorialId="teams" />
+
       <header className="mb-8">
         <h1 className="text-pretty text-2xl font-semibold tracking-tight sm:text-3xl">
           Your teams
@@ -205,7 +208,7 @@ export function YourTeams() {
           You are not in any teams yet. Create one or join an existing team below.
         </div>
       ) : (
-        <div className="mb-8 space-y-3">
+        <div className="mb-8 space-y-3" data-tutorial="team-cards">
           {teams.map((team) => {
             const isActive = team.id === activeTeamId;
 
@@ -292,7 +295,7 @@ export function YourTeams() {
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
-        <Card className="flex flex-col">
+        <Card className="flex flex-col" data-tutorial="create-team">
           <CardHeader className="space-y-0">
             <div className="mb-4 flex size-9 items-center justify-center rounded-lg bg-secondary text-foreground">
               <Plus className="size-4" aria-hidden="true" />
@@ -323,7 +326,7 @@ export function YourTeams() {
           </CardContent>
         </Card>
 
-        <Card className="flex flex-col">
+        <Card className="flex flex-col" data-tutorial="join-team">
           <CardHeader className="space-y-0">
             <div className="mb-4 flex size-9 items-center justify-center rounded-lg bg-secondary text-foreground">
               <Users className="size-4" aria-hidden="true" />

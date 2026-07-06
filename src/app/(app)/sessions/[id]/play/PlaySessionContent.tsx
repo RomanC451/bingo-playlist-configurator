@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { PlaybackControls } from "@/components/PlaybackControls";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { readJsonResponse } from "@/lib/read-json-response";
 
 interface PlaySessionContentProps {
@@ -25,6 +26,8 @@ export function PlaySessionContent({ sessionId }: PlaySessionContentProps) {
 
   return (
     <div>
+      <TutorialWelcomeBanner tutorialId="play-session" />
+
       <Breadcrumb
         className="mb-4"
         items={[
@@ -37,10 +40,12 @@ export function PlaySessionContent({ sessionId }: PlaySessionContentProps) {
           { label: "Live playback" },
         ]}
       />
+      <div>
       <h1 className="text-2xl font-semibold">Live playback</h1>
       <p className="mt-1 text-sm text-zinc-500">
         Clips auto-seek to the start point. Press Next when you are ready to advance.
       </p>
+      </div>
       <div className="mt-8">
         <PlaybackControls sessionId={sessionId} />
       </div>

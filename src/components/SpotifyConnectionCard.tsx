@@ -102,6 +102,7 @@ export function SpotifyConnectionCard({
 
   return (
     <div
+      data-tutorial="spotify-card"
       className={`flex flex-wrap items-center gap-2.5 rounded-lg border px-3 py-2 text-sm ${
         isLinked
           ? "border-border bg-muted/40"
@@ -181,6 +182,7 @@ export function SpotifyConnectionCard({
           {status.canManage && (
             <a
               href={connectHref}
+              data-tutorial="spotify-connect-button"
               className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-900 underline-offset-2 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900"
             >
               Connect Spotify

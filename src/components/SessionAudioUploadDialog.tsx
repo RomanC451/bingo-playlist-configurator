@@ -322,7 +322,7 @@ export function SessionAudioUploadDialog({
             ) : null}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-tutorial="audio-assignments">
             {allTracksMatched ? (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-center dark:border-emerald-900 dark:bg-emerald-950">
                 <p className="font-medium text-emerald-800 dark:text-emerald-200">
@@ -450,6 +450,7 @@ export function SessionAudioUploadDialog({
                   variant="outline"
                   size="sm"
                   disabled={uploading}
+                  data-tutorial="audio-file-picker"
                   onClick={() => addMoreInputRef.current?.click()}
                 >
                   Add more files
@@ -467,7 +468,12 @@ export function SessionAudioUploadDialog({
               >
                 Cancel
               </Button>
-              <Button type="button" disabled={!canSubmit} onClick={handleSubmitClick}>
+              <Button
+                type="button"
+                disabled={!canSubmit}
+                data-tutorial="audio-submit"
+                onClick={handleSubmitClick}
+              >
                 {uploading ? "Uploading…" : "Start uploading"}
               </Button>
             </div>

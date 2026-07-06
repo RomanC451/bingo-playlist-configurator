@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { errorMessageFromBody } from "@/lib/api-errors";
 
 const DURATION_OPTIONS = [
@@ -43,6 +44,8 @@ export default function NewSessionPage() {
 
   return (
     <div className="mx-auto max-w-lg">
+      <TutorialWelcomeBanner tutorialId="create-session" />
+
       <Breadcrumb
         className="mb-4"
         items={[
@@ -50,6 +53,7 @@ export default function NewSessionPage() {
           { label: "New bingo session" },
         ]}
       />
+      <div>
       <h1 className="text-2xl font-semibold">New bingo session</h1>
       <p className="mt-2 text-sm text-zinc-500">
         Paste a Spotify playlist URL or ID from a playlist the team&apos;s Spotify account
@@ -59,6 +63,7 @@ export default function NewSessionPage() {
         Spotify editorial playlists (e.g. Discover Weekly, Peaceful Piano) cannot be imported
         in development mode.
       </p>
+      </div>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
         {error && (
@@ -67,7 +72,7 @@ export default function NewSessionPage() {
           </div>
         )}
 
-        <div>
+        <div data-tutorial="session-name">
           <label className="block text-sm font-medium">Session name</label>
           <input
             type="text"
@@ -79,7 +84,7 @@ export default function NewSessionPage() {
           />
         </div>
 
-        <div>
+        <div data-tutorial="playlist-input">
           <label className="block text-sm font-medium">Spotify playlist</label>
           <input
             type="text"
@@ -91,7 +96,7 @@ export default function NewSessionPage() {
           />
         </div>
 
-        <div>
+        <div data-tutorial="clip-duration">
           <label className="block text-sm font-medium">Default clip duration</label>
           <select
             value={defaultClipDurationMs}

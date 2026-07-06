@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { BreadcrumbRow } from "@/components/BreadcrumbRow";
 import { PlaybackPageSkeleton } from "@/components/page-skeletons";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { ReviewNotOkDialog } from "@/components/ReviewNotOkDialog";
 import {
   AllReviewsButton,
@@ -331,12 +332,14 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
         }
       />
 
+      <TutorialWelcomeBanner tutorialId="review-clips" />
+
       <div className="min-w-0">
         <h1 className="text-2xl font-semibold">Review clips</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Listen to each clip and mark it OK or Not OK. Your review advances automatically.
         </p>
-        <div className="mt-3">
+        <div className="mt-3" data-tutorial="review-track-nav">
           <ReviewSessionTrackNavTrigger
             tracks={displayTrackList}
             open={tracksSheetOpen}
@@ -378,7 +381,7 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
               <UploadedAudioRequiredNotice sessionId={sessionId} />
             ) : null}
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4" data-tutorial="review-progress">
               {progress && (
                 <p className="text-sm text-zinc-500">
                   {progress.remaining} remaining · {progress.reviewed} reviewed ·{" "}
@@ -402,7 +405,7 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
                 )}
               </p>
 
-              <div className="mt-4">
+              <div className="mt-4" data-tutorial="review-waveform">
                 <WaveformEditor
                   readOnly
                   compact
@@ -444,7 +447,7 @@ export function ReviewSessionContent({ sessionId }: ReviewSessionContentProps) {
                 />
               </div>
 
-              <div className="mt-4 flex justify-center gap-3">
+              <div className="mt-4 flex justify-center gap-3" data-tutorial="review-verdict">
                 <button
                   type="button"
                   disabled={actionLoading || !clipPlayback.ready}

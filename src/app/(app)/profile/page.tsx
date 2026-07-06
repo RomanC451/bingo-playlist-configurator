@@ -8,6 +8,7 @@ import { AvatarPicker } from "@/components/AvatarPicker";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { ProfilePageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 
 interface Profile {
   name: string | null;
@@ -130,6 +131,8 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-lg">
+      <TutorialWelcomeBanner tutorialId="profile" />
+
       <h1 className="text-2xl font-semibold">Profile</h1>
       <p className="mt-2 text-sm text-zinc-500">
         Your display name appears on saved clip versions and team activity.
@@ -152,12 +155,15 @@ export default function ProfilePage() {
           </div>
         )}
 
+        <div data-tutorial="profile-avatar">
         <AvatarPicker
           value={image}
           onChange={setImage}
           previewLabel={name.trim() || email || "?"}
         />
+        </div>
 
+        <div data-tutorial="profile-details">
         <div>
           <label className="block text-sm font-medium" htmlFor="name">
             Display name
@@ -188,10 +194,12 @@ export default function ProfilePage() {
             className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
           />
         </div>
+        </div>
 
         {profile.hasPassword && (
           <button
             type="button"
+            data-tutorial="profile-password"
             onClick={() => {
               setPasswordSaved(false);
               setPasswordDialogOpen(true);

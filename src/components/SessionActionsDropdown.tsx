@@ -18,7 +18,9 @@ import {
   type SessionAudioUploadTriggerHandle,
 } from "@/components/SessionAudioUploadTrigger";
 import type { SessionAudioUploadTrack } from "@/components/SessionAudioUploadDialog";
-import { useRef, useState, type ReactNode } from "react";
+import type { TutorialStepAction } from "@/lib/tutorial-actions";
+import { useTutorialStepActionListener } from "@/hooks/useTutorialStepActionListener";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 
 interface SessionActionsDropdownProps {
   sessionId: string;
@@ -47,13 +49,33 @@ export function SessionActionsDropdown({
   const [clipGuessOpen, setClipGuessOpen] = useState(false);
   const hasInlineUpload = uploadTracks != null && onUploadComplete != null;
 
+  const handleTutorialAction = useCallback(
+    (action: TutorialStepAction) => {
+      if (action === "open-audio-upload") {
+        uploadRef.current?.openFilePicker();
+      } else if (action === "open-clip-guess") {
+        setClipGuessOpen(true);
+      } else if (action === "open-team-reviews") {
+        onTeamProgress();
+      }
+    },
+    [onTeamProgress],
+  );
+
+  useTutorialStepActionListener(handleTutorialAction);
+
   return (
     <>
       <DropdownMenu
         align="right"
         trigger={
           trigger ?? (
-            <Button type="button" variant="outline" className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              data-tutorial="session-actions"
+            >
               <MoreVertical className="size-4" aria-hidden="true" />
               Actions
             </Button>

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { SessionProvider } from "next-auth/react";
 import { AppHeader } from "@/components/AppHeader";
 import { AppSidebar } from "@/components/AppSidebar";
+import { TutorialProvider } from "@/components/tutorial/TutorialProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { isFullWidthPage, isSplitNavPage } from "@/lib/page-layout";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider>
+      <TutorialProvider>
       <Toaster />
       <div className="flex min-h-screen">
         <AppSidebar
@@ -60,6 +62,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </main>
         </div>
       </div>
+      </TutorialProvider>
     </SessionProvider>
   );
 }

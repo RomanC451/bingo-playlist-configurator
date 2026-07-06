@@ -16,6 +16,8 @@ import { TrackUploadedAudioIndicator } from "@/components/TrackUploadedAudioIndi
 import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTrackLocks";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { EditSessionPageSkeleton } from "@/components/page-skeletons";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
+import { ContextualTutorialTrigger } from "@/components/tutorial/ContextualTutorialTrigger";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { errorMessageFromBody } from "@/lib/api-errors";
 import { isTeamManagerRole, type TeamRoleValue } from "@/lib/team-client";
@@ -173,6 +175,15 @@ export default function EditSessionPage() {
 
   return (
     <div>
+      <TutorialWelcomeBanner tutorialId="session-edit" />
+      {canDeleteSession && (
+        <TutorialWelcomeBanner tutorialId="session-admin" isTeamAdmin />
+      )}
+      <ContextualTutorialTrigger
+        tutorialId="uploaded-audio-required"
+        when={session.tracks.some((track) => !track.hasUploadedAudio)}
+      />
+
       <Breadcrumb
         className="mb-4"
         items={[
@@ -210,6 +221,7 @@ export default function EditSessionPage() {
           onAutoOpenHandled={() => {
             router.replace(`/sessions/${sessionId}/edit`);
           }}
+          isTeamAdmin={canDeleteSession}
         />
       </div>
 
@@ -220,7 +232,7 @@ export default function EditSessionPage() {
           No tracks in this playlist.
         </div>
       ) : (
-        <ul className="mt-8 space-y-2">
+        <ul className="mt-8 space-y-2" data-tutorial="track-list">
           {displayTracks.map((track, index) => {
             const range = track.playbackRange;
             const otherEditors = track.contributors

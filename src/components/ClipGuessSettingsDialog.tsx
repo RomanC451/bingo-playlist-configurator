@@ -167,6 +167,7 @@ export function ClipGuessSettingsDialog({
                       variant={enabled ? "outline" : "default"}
                       className={enabled ? undefined : "bg-emerald-600 hover:bg-emerald-700"}
                       disabled={saving}
+                      data-tutorial="clip-guess-enable"
                       onClick={() => void patchShare({ enabled: !enabled })}
                     >
                       <Link2 className="size-4" aria-hidden="true" />
@@ -213,6 +214,7 @@ export function ClipGuessSettingsDialog({
                           variant="outline"
                           size="sm"
                           disabled={saving}
+                          data-tutorial="clip-guess-rotate"
                           onClick={() => void patchShare({ rotateToken: true })}
                         >
                           <RefreshCw className="size-4" aria-hidden="true" />

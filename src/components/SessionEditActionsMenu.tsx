@@ -14,6 +14,7 @@ interface SessionEditActionsMenuProps {
   onDelete?: () => void;
   autoOpenUpload?: boolean;
   onAutoOpenHandled?: () => void;
+  isTeamAdmin?: boolean;
 }
 
 export function SessionEditActionsMenu({
@@ -30,6 +31,7 @@ export function SessionEditActionsMenu({
     <div className="flex shrink-0 items-center gap-2">
       <Link
         href={`/sessions/${sessionId}/play`}
+        data-tutorial="start-playback"
         className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
       >
         <Play className="size-4" aria-hidden="true" />

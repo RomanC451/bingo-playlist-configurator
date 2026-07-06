@@ -245,7 +245,7 @@ export function AllReviewsDialog({
             Each member&apos;s progress and reviews for the current clip versions.
           </p>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-tutorial="team-reviews-progress">
           {sortedMembers.length === 0 ? (
             <p className="text-sm text-muted-foreground">No team members yet.</p>
           ) : (

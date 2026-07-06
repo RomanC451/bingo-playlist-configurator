@@ -28,6 +28,8 @@ import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { useTrackEditLock } from "@/hooks/useTrackEditLock";
 import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTrackLocks";
 import { TrackPageSkeleton } from "@/components/page-skeletons";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
+import { ContextualTutorialTrigger } from "@/components/tutorial/ContextualTutorialTrigger";
 import { UploadedAudioRequiredNotice } from "@/components/UploadedAudioRequiredNotice";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import {
@@ -861,7 +863,8 @@ export default function TrackEditPage() {
   if (lockState.status === "blocked") {
     return (
       <TrackPageLayout nav={trackNav}>
-        <div className="rounded-xl border border-border bg-card p-8 text-center">
+        <ContextualTutorialTrigger tutorialId="edit-locks" when />
+        <div className="rounded-xl border border-border bg-card p-8 text-center" data-tutorial="edit-lock-indicator">
           <p className="text-lg font-medium">{lockState.editingBy.name} is editing this track</p>
           <p className="mt-2 text-sm text-muted-foreground">
             Wait until they finish, or pick another track from the list.
@@ -935,6 +938,13 @@ export default function TrackEditPage() {
 
   return (
     <div>
+      <TutorialWelcomeBanner tutorialId="track-editor" />
+      <ContextualTutorialTrigger tutorialId="clip-reactions" when={!!detail.currentVersion} />
+      <ContextualTutorialTrigger
+        tutorialId="needs-attention"
+        when={detail.track.hasUploadedAudio}
+      />
+
       <UnsavedChangesDialog
         open={pendingHref != null}
         saving={saveLoading}
@@ -1015,6 +1025,7 @@ export default function TrackEditPage() {
                     type="button"
                     size="sm"
                     disabled={!isDirty || saveLoading}
+                    data-tutorial="save-proposal"
                     onClick={() => void saveVersion(draftStartMs, draftEndMs)}
                   >
                     {saveLoading ? "Saving…" : "Save version"}
@@ -1022,6 +1033,7 @@ export default function TrackEditPage() {
                 </div>
               </div>
 
+              <div data-tutorial="waveform-editor">
               <WaveformEditor
                 manualSave
                 unsaved={isDirty}
@@ -1048,7 +1060,8 @@ export default function TrackEditPage() {
                 onRestart={playbackDisabled ? undefined : editorPlayback.onRestart}
                 onSeek={playbackDisabled ? undefined : editorPlayback.onSeek}
                 footer={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2" data-tutorial="clip-preview">
+                    <span data-tutorial="needs-attention">
                     <NeedsAttentionButton
                       needsAttention={detail.needsAttention}
                       flaggedBy={detail.attentionFlaggedBy}
@@ -1058,20 +1071,24 @@ export default function TrackEditPage() {
                       onFlag={(comment) => void flagNeedsAttention(comment)}
                       onClear={() => void clearNeedsAttention()}
                     />
+                    </span>
                     {detail.currentVersion ? (
-                      <ClipVersionReactions
-                        showVoters={false}
-                        reactions={detail.currentVersion.reactions}
-                        loading={reactionLoadingVersionId === detail.currentVersion.id}
-                        disabled={isDirty}
-                        onReact={(reaction) =>
-                          void reactToVersion(detail.currentVersion!.id, reaction)
-                        }
-                      />
+                      <span data-tutorial="clip-reactions">
+                        <ClipVersionReactions
+                          showVoters={false}
+                          reactions={detail.currentVersion.reactions}
+                          loading={reactionLoadingVersionId === detail.currentVersion.id}
+                          disabled={isDirty}
+                          onReact={(reaction) =>
+                            void reactToVersion(detail.currentVersion!.id, reaction)
+                          }
+                        />
+                      </span>
                     ) : null}
                   </div>
                 }
               />
+              </div>
 
               {trackNavigation.total > 1 ? (
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1117,7 +1134,7 @@ export default function TrackEditPage() {
             </section>
 
             {versions.length > 0 && (
-              <section>
+              <section data-tutorial="version-list">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-lg font-medium">Version history</h2>
                   {versions.length > 1 && showAllVersions && (

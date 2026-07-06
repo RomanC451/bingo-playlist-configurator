@@ -53,6 +53,7 @@ export function ClipGuessEntryScreen({
         <button
           type="button"
           disabled={loading}
+          data-tutorial="clip-guess-start"
           onClick={onStart}
           className="mt-8 w-full rounded-lg bg-emerald-600 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
         >

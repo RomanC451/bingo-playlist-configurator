@@ -41,6 +41,36 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-display: var(--font-geist-sans);
+  --animate-tutorial-bounce: tutorial-bounce 2s ease-in-out infinite;
+  --animate-tutorial-ping: tutorial-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+
+  @keyframes tutorial-bounce {
+    0%,
+    55%,
+    100% {
+      transform: translateY(0);
+    }
+    12% {
+      transform: translateY(-8px);
+    }
+    24% {
+      transform: translateY(0);
+    }
+    36% {
+      transform: translateY(-4px);
+    }
+    48% {
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes tutorial-ping {
+    75%,
+    100% {
+      transform: scale(2.75);
+      opacity: 0;
+    }
+  }
 }
 
 @media (prefers-color-scheme: dark) {

@@ -19,6 +19,7 @@ import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ClipPlaybackButtons } from "@/components/WaveformEditor";
 import { ClipGuessEntryScreen } from "@/app/guess/[shareToken]/ClipGuessEntryScreen";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 
 type CurrentClip = {
   id: string;
@@ -480,18 +481,21 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
 
   if (!complete && !hasStarted) {
     return (
-      <ClipGuessEntryScreen
-        sessionName={sessionName}
-        progress={progress}
-        onStart={() => void handleEntryStart()}
-        loading={clipPlayback.actionLoading}
-      />
+      <>
+        <TutorialWelcomeBanner tutorialId="clip-guess-guest" />
+        <ClipGuessEntryScreen
+          sessionName={sessionName}
+          progress={progress}
+          onStart={() => void handleEntryStart()}
+          loading={clipPlayback.actionLoading}
+        />
+      </>
     );
   }
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
-      <header className="mb-8 text-center">
+      <header className="mb-8 text-center" data-tutorial="clip-guess-progress">
         <p className="text-sm font-medium text-emerald-600">Clip guess</p>
         <h1 className="mt-1 text-2xl font-semibold">{sessionName}</h1>
         <p className="mt-2 text-sm text-zinc-500">
@@ -515,7 +519,10 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
         <GuessResultsSummary guesses={guestGuesses} />
       ) : currentClip ? (
         <div className="space-y-6">
-          <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+          <div
+            className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950"
+            data-tutorial="clip-guess-player"
+          >
             <p className="text-sm text-zinc-500">
               Clip {currentClip.clipIndex}
               {progress ? ` of ${progress.total}` : ""}
@@ -599,7 +606,10 @@ export function ClipGuessContent({ shareToken }: ClipGuessContentProps) {
 
           {!lastResult && (
             <>
-              <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <div
+                className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+                data-tutorial="clip-guess-choices"
+              >
                 <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
                   <p className="text-sm font-medium">Which song is this?</p>
                   <input

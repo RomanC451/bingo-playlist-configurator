@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSimulatedPlaybackProgress } from "@/hooks/useSimulatedPlaybackProgress";
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { PlaybackPageSkeleton } from "@/components/page-skeletons";
+import { ContextualTutorialTrigger } from "@/components/tutorial/ContextualTutorialTrigger";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { msToLabel } from "@/lib/waveform";
 import {
@@ -396,6 +397,10 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
 
   return (
     <div className="space-y-6">
+      <ContextualTutorialTrigger
+        tutorialId="spotify-device"
+        when={noConnectDevice || !effectiveDeviceId}
+      />
       {noConnectDevice && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
           <p className="font-medium">No Spotify Connect device found</p>
@@ -431,7 +436,7 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
         </div>
       )}
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4" data-tutorial="playback-device">
         <label className="text-sm text-zinc-600 dark:text-zinc-400">
           Device
           <select
@@ -452,7 +457,10 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
         </label>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+      <div
+        className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950"
+        data-tutorial="now-playing"
+      >
         <p className="text-sm text-zinc-500">
           Track {currentIndex + 1} of {clips.length}
         </p>
@@ -480,7 +488,7 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
           {msToLabel(progressInClip)} / {msToLabel(clipDuration)} within clip
         </p>
 
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className="mt-6 flex flex-wrap gap-3" data-tutorial="playback-controls">
           <button
             type="button"
             disabled={currentIndex === 0 || actionLoading}

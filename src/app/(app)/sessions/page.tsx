@@ -17,6 +17,7 @@ import {
 } from "@/components/SessionCard";
 import { SessionTeamProgressDialog } from "@/components/SessionTeamProgressDialog";
 import { SessionsPageSkeleton } from "@/components/page-skeletons";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import { errorMessageFromBody } from "@/lib/api-errors";
 import { isTeamManagerRole, type TeamRoleValue } from "@/lib/team-client";
@@ -206,6 +207,9 @@ function SessionsContent() {
 
   return (
     <div>
+      <TutorialWelcomeBanner tutorialId="sessions-list" />
+      <TutorialWelcomeBanner tutorialId="spotify-connect" isTeamAdmin={canDeleteSessions} />
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Bingo Sessions</h1>
@@ -216,28 +220,29 @@ function SessionsContent() {
               : " Select or create a team to view and create sessions."}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
         {activeTeamId && teamSpotifyLinked ? (
           <Link
             href="/sessions/new"
+            data-tutorial="new-session-button"
             className="inline-flex w-full shrink-0 items-center justify-center whitespace-nowrap rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 sm:w-auto"
           >
             New session
           </Link>
-        ) : activeTeamId ? (
-          <span
-            className="inline-flex w-full shrink-0 cursor-not-allowed items-center justify-center whitespace-nowrap rounded-lg bg-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-500 dark:bg-zinc-800 sm:w-auto"
-            title="Connect Spotify for this team in team settings"
-          >
-            New session
-          </span>
         ) : (
           <span
+            data-tutorial="new-session-button"
             className="inline-flex w-full shrink-0 cursor-not-allowed items-center justify-center whitespace-nowrap rounded-lg bg-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-500 dark:bg-zinc-800 sm:w-auto"
-            title="Create or join a team first"
+            title={
+              activeTeamId
+                ? "Connect Spotify for this team in team settings"
+                : "Create or join a team first"
+            }
           >
             New session
           </span>
         )}
+        </div>
       </div>
 
       {flashMessage && (
@@ -396,7 +401,7 @@ function SessionsContent() {
           )}
         </div>
       ) : (
-        <ul className="mt-8 space-y-3">
+        <ul className="mt-8 space-y-3" data-tutorial="session-cards">
           {sessions.map((session) => (
             <li key={session.id}>
               <SessionCard

@@ -10,6 +10,7 @@ import { SpotifyConnectionCard } from "@/components/SpotifyConnectionCard";
 import { TeamSettingsPageSkeleton } from "@/components/page-skeletons";
 import { Button } from "@/components/ui/button";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { errorMessageFromBody } from "@/lib/api-errors";
 import { readJsonResponse } from "@/lib/read-json-response";
 import {
@@ -364,6 +365,8 @@ function TeamSettingsContent() {
         </div>
       ) : (
         <>
+          {isManager && <TutorialWelcomeBanner tutorialId="team-settings" isTeamAdmin />}
+
           <h1 className="text-2xl font-semibold">{team.name}</h1>
           <p className="mt-1 text-sm text-zinc-500">Team members and access</p>
 
@@ -379,7 +382,7 @@ function TeamSettingsContent() {
             </div>
           )}
 
-          <section className="mt-6">
+          <section className="mt-6" data-tutorial="team-spotify">
             <h2 className="text-lg font-medium">Spotify</h2>
             <p className="mt-1 text-sm text-zinc-500">
               One shared Spotify account for importing playlists and playback during bingo
@@ -391,7 +394,10 @@ function TeamSettingsContent() {
             <SpotifyConnectionCard teamId={teamId} className="mt-3" />
           </section>
 
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/50">
+          <div
+            className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/50"
+            data-tutorial="add-member"
+          >
             <p className="font-medium">Team ID for joining</p>
             <p className="mt-1 text-xs text-zinc-500">
               Share this with members so they can use <strong>Join</strong> on the Teams page.
@@ -416,7 +422,7 @@ function TeamSettingsContent() {
             </div>
           )}
 
-          <ul className="mt-8 space-y-2">
+          <ul className="mt-8 space-y-2" data-tutorial="member-list">
             {team.members.map((member) => {
               const showMemberMenu =
                 isManager &&

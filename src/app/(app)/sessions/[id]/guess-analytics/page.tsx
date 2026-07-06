@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { readJsonResponse } from "@/lib/read-json-response";
 import type { ClipGuessAnalytics, GuessMetricSummary } from "@/lib/clip-guess-shared";
 
@@ -280,6 +281,8 @@ export default function GuessAnalyticsPage() {
 
   return (
     <div>
+      <TutorialWelcomeBanner tutorialId="guess-analytics" />
+
       <Breadcrumb
         className="mb-4"
         items={[
@@ -318,7 +321,7 @@ export default function GuessAnalyticsPage() {
         <p className="mt-8 text-sm text-zinc-500">Loading…</p>
       ) : analytics ? (
         <div className="mt-8 space-y-8">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-tutorial="guess-analytics-summary">
             <StatCard label="Unique guests" value={String(analytics.uniqueGuests)} />
             <StatCard label="Total guesses" value={String(analytics.totalGuesses)} />
             <StatCard label="Correct guesses" value={String(analytics.correctGuesses)} />
@@ -343,7 +346,7 @@ export default function GuessAnalyticsPage() {
             />
           </div>
 
-          <div>
+          <div data-tutorial="guess-analytics-table">
             <h2 className="text-lg font-semibold">Per clip</h2>
             <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
               <table className="min-w-full text-sm">

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { History } from "lucide-react";
 import { HomePageSkeleton } from "@/components/page-skeletons";
+import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { OngoingReviewsPanel } from "@/components/OngoingReviewsPanel";
 import { SessionPanel } from "@/components/session-panel";
 import {
@@ -98,6 +99,8 @@ export default function DashboardPage() {
 
   return (
     <div>
+      <TutorialWelcomeBanner tutorialId="dashboard" />
+
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Home</h1>
@@ -107,25 +110,30 @@ export default function DashboardPage() {
               : "Select a team in the sidebar to see session highlights."}
           </p>
         </div>
-        {activeTeam && (
-          <Link
-            href="/sessions"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            All sessions
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {activeTeam && (
+            <Link
+              href="/sessions"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              All sessions
+            </Link>
+          )}
+        </div>
       </div>
 
       {!activeTeam ? (
-        <div className="rounded-xl border border-dashed border-border p-10 text-center">
+        <div
+          data-tutorial="home-panels"
+          className="rounded-xl border border-dashed border-border p-10 text-center"
+        >
           <p className="text-muted-foreground">No active team selected.</p>
           <p className="mt-2 text-sm text-muted-foreground">
             Use the team switcher at the bottom of the sidebar to create, join, or select a team.
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-6" data-tutorial="home-panels">
           <SessionPanel
             icon={History}
             title="Last session you worked on"

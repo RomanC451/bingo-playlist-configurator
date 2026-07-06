@@ -254,7 +254,7 @@ export function ClipVersionReactions({
             onClick={() => setShowVotersPanel((open) => !open)}
           >
             <Users className="size-4" aria-hidden="true" />
-            {showVotersPanel ? "Hide voters" : "Who voted?"}
+            {showVotersPanel ? "Hide reactions" : "Who reacted?"}
           </Button>
         )}
       </div>

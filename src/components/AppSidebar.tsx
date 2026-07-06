@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { ChevronLeft, ChevronRight, LogOut, X } from "lucide-react";
 import { TeamSwitcher } from "@/components/TeamSwitcher";
+import { SidebarTutorialMenu } from "@/components/tutorial/SidebarTutorialMenu";
 import { cn } from "@/lib/utils";
 
 interface AppSidebarProps {
@@ -169,6 +170,7 @@ export function AppSidebar({
         </div>
 
         <div
+          data-tutorial="team-switcher"
           className={cn(
             "border-b border-zinc-200 dark:border-zinc-800",
             expanded ? "px-4 py-4" : "flex justify-center px-2 py-3",
@@ -193,6 +195,7 @@ export function AppSidebar({
                 href={item.href}
                 onClick={onMobileClose}
                 title={expanded ? undefined : item.label}
+                data-tutorial={item.label === "Bingo sessions" ? "nav-sessions" : undefined}
                 className={cn(
                   "flex items-center rounded-lg text-sm font-medium transition-colors",
                   expanded ? "gap-3 px-3 py-2" : "justify-center p-2.5",
@@ -211,6 +214,7 @@ export function AppSidebar({
         <div className={cn("border-t border-zinc-200 dark:border-zinc-800", expanded ? "px-3 py-4" : "px-2 py-3")}>
           {session?.user && (
             <div className={cn("space-y-2", !expanded && "flex flex-col items-center")}>
+              <SidebarTutorialMenu expanded={expanded} onNavigate={onMobileClose} />
               <Link
                 href="/profile"
                 onClick={onMobileClose}
