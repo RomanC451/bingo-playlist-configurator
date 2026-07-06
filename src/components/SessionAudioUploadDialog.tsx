@@ -81,6 +81,7 @@ export function SessionAudioUploadDialog({
 }: SessionAudioUploadDialogProps) {
   const titleId = useId();
   const addMoreInputRef = useRef<HTMLInputElement>(null);
+  const wasOpenRef = useRef(false);
   const uploadProgressRef = useRef({ done: 0, total: 0 });
   const [files, setFiles] = useState<File[]>([]);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
@@ -139,14 +140,25 @@ export function SessionAudioUploadDialog({
       : 0;
 
   useEffect(() => {
-    if (!open) return;
-    const mp3Files = initialFiles.filter(isMp3File);
-    setFiles(mp3Files);
-    setAssignments(buildAssignments(mp3Files, tracks));
-    setUploadErrors({});
-    setSubmitError(null);
-    setUploadProgress({ done: 0, total: 0 });
-    setConfirmReplaceOpen(false);
+    if (open && !wasOpenRef.current) {
+      const mp3Files = initialFiles.filter(isMp3File);
+      setFiles(mp3Files);
+      setAssignments(buildAssignments(mp3Files, tracks));
+      setUploadErrors({});
+      setSubmitError(null);
+      setConfirmReplaceOpen(false);
+      uploadProgressRef.current = { done: 0, total: 0 };
+      setUploadProgress({ done: 0, total: 0 });
+      setUploading(false);
+    }
+
+    if (!open && wasOpenRef.current) {
+      uploadProgressRef.current = { done: 0, total: 0 };
+      setUploadProgress({ done: 0, total: 0 });
+      setUploading(false);
+    }
+
+    wasOpenRef.current = open;
   }, [open, initialFiles, tracks]);
 
   const handleAddMoreFiles = useCallback(
@@ -194,8 +206,9 @@ export function SessionAudioUploadDialog({
       }));
 
     const total = jobs.length;
-    uploadProgressRef.current = { done: 0, total };
-    setUploadProgress(uploadProgressRef.current);
+    const initialProgress = { done: 0, total };
+    uploadProgressRef.current = initialProgress;
+    setUploadProgress({ ...initialProgress });
     const errors: Record<string, string> = {};
 
     try {
@@ -209,11 +222,12 @@ export function SessionAudioUploadDialog({
         } catch (err) {
           errors[job.track.id] = err instanceof Error ? err.message : "Upload failed";
         } finally {
-          uploadProgressRef.current = {
+          const nextProgress = {
             total,
             done: uploadProgressRef.current.done + 1,
           };
-          setUploadProgress(uploadProgressRef.current);
+          uploadProgressRef.current = nextProgress;
+          setUploadProgress({ ...nextProgress });
         }
       });
 
@@ -223,8 +237,8 @@ export function SessionAudioUploadDialog({
         return;
       }
 
-      onComplete();
       onClose();
+      onComplete();
     } finally {
       setUploading(false);
     }
