@@ -203,7 +203,6 @@ export function ClipGuessSettingsDialog({
                           className={buttonClassName({
                             variant: "outline",
                             size: "sm",
-                            className: "gap-2",
                           })}
                         >
                           <ExternalLink className="size-4" aria-hidden="true" />

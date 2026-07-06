@@ -81,6 +81,7 @@ export function SessionAudioUploadDialog({
 }: SessionAudioUploadDialogProps) {
   const titleId = useId();
   const addMoreInputRef = useRef<HTMLInputElement>(null);
+  const uploadProgressRef = useRef({ done: 0, total: 0 });
   const [files, setFiles] = useState<File[]>([]);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
@@ -93,6 +94,18 @@ export function SessionAudioUploadDialog({
     () => new Map(files.map((file) => [getFileId(file), file])),
     [files],
   );
+
+  const matchedCount = useMemo(
+    () => tracks.filter((track) => Boolean(assignments[track.id])).length,
+    [tracks, assignments],
+  );
+
+  const unmatchedTracks = useMemo(
+    () => tracks.filter((track) => !assignments[track.id]),
+    [tracks, assignments],
+  );
+
+  const allTracksMatched = tracks.length > 0 && matchedCount === tracks.length;
 
   const conflicts = useMemo(
     () => collectConflicts(files, tracks, assignments),
@@ -109,11 +122,6 @@ export function SessionAudioUploadDialog({
     [files, assignedFileIds],
   );
 
-  const assignedCount = useMemo(
-    () => tracks.filter((track) => Boolean(assignments[track.id])).length,
-    [tracks, assignments],
-  );
-
   const replacementCount = useMemo(
     () =>
       tracks.filter(
@@ -123,10 +131,12 @@ export function SessionAudioUploadDialog({
   );
 
   const canSubmit =
-    !uploading &&
-    tracks.length > 0 &&
-    assignedCount === tracks.length &&
-    conflicts.length === 0;
+    !uploading && allTracksMatched && conflicts.length === 0;
+
+  const uploadPercent =
+    uploadProgress.total > 0
+      ? Math.min(100, (uploadProgress.done / uploadProgress.total) * 100)
+      : 0;
 
   useEffect(() => {
     if (!open) return;
@@ -176,12 +186,16 @@ export function SessionAudioUploadDialog({
     setSubmitError(null);
     setUploadErrors({});
 
-    const jobs = tracks.map((track) => ({
-      track,
-      file: fileById.get(assignments[track.id])!,
-    }));
+    const jobs = tracks
+      .filter((track) => Boolean(assignments[track.id]))
+      .map((track) => ({
+        track,
+        file: fileById.get(assignments[track.id])!,
+      }));
 
-    setUploadProgress({ done: 0, total: jobs.length });
+    const total = jobs.length;
+    uploadProgressRef.current = { done: 0, total };
+    setUploadProgress(uploadProgressRef.current);
     const errors: Record<string, string> = {};
 
     try {
@@ -195,7 +209,11 @@ export function SessionAudioUploadDialog({
         } catch (err) {
           errors[job.track.id] = err instanceof Error ? err.message : "Upload failed";
         } finally {
-          setUploadProgress((prev) => ({ ...prev, done: prev.done + 1 }));
+          uploadProgressRef.current = {
+            total,
+            done: uploadProgressRef.current.done + 1,
+          };
+          setUploadProgress(uploadProgressRef.current);
         }
       });
 
@@ -246,12 +264,18 @@ export function SessionAudioUploadDialog({
               Upload session audio
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Assign an MP3 to every track, then submit to upload all files to storage.
+              {allTracksMatched
+                ? "Every track is matched to an MP3. Submit to upload all files to storage."
+                : "Assign an MP3 to each unmatched track below, then submit to upload."}
             </p>
             <div className="mt-3 flex flex-wrap gap-3 text-sm">
               <span>
-                Assigned: {assignedCount} / {tracks.length}
+                Matched: {matchedCount} / {tracks.length}
               </span>
+              <span>{files.length} files selected</span>
+              {!allTracksMatched ? (
+                <span>Unmatched tracks: {unmatchedTracks.length}</span>
+              ) : null}
               <span>Unassigned files: {unassignedFiles.length}</span>
               {conflicts.length > 0 ? (
                 <span className="text-amber-700 dark:text-amber-300">
@@ -260,9 +284,24 @@ export function SessionAudioUploadDialog({
               ) : null}
             </div>
             {uploading ? (
-              <p className="mt-2 text-sm text-muted-foreground">
-                Uploading {uploadProgress.done} / {uploadProgress.total}…
-              </p>
+              <div className="mt-3">
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+                  role="progressbar"
+                  aria-label="Upload progress"
+                  aria-valuemin={0}
+                  aria-valuemax={uploadProgress.total}
+                  aria-valuenow={uploadProgress.done}
+                >
+                  <div
+                    className="h-full bg-emerald-500 transition-[width] duration-300 ease-out"
+                    style={{ width: `${uploadPercent}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Uploading {uploadProgress.done} / {uploadProgress.total}…
+                </p>
+              </div>
             ) : null}
             {submitError ? (
               <p className="mt-2 text-sm text-red-600 dark:text-red-400">{submitError}</p>
@@ -270,117 +309,141 @@ export function SessionAudioUploadDialog({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            {conflicts.length > 0 ? (
-              <div className="mb-4 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                {conflicts.map((conflict) => (
-                  <p key={`${conflict.type}-${conflict.fileId}-${conflict.clipId ?? ""}`}>
-                    {conflict.message}
-                  </p>
-                ))}
+            {allTracksMatched ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-center dark:border-emerald-900 dark:bg-emerald-950">
+                <p className="font-medium text-emerald-800 dark:text-emerald-200">
+                  All tracks matched
+                </p>
+                <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
+                  Every track has been paired with an MP3 file. Press Start uploading to send them to
+                  storage.
+                </p>
               </div>
-            ) : null}
-
-            <div className="space-y-2">
-              {tracks.map((track, index) => {
-                const selectedFileId = assignments[track.id] ?? "";
-                const selectedFile = selectedFileId ? fileById.get(selectedFileId) : null;
-                const rowError = uploadErrors[track.id];
-
-                return (
-                  <div
-                    key={track.id}
-                    className="rounded-lg border border-border bg-card p-3"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs text-muted-foreground">Track {index + 1}</p>
-                        <p className="font-medium">{track.trackName}</p>
-                        <p className="text-sm text-muted-foreground">{track.artistName}</p>
-                        {track.hasUploadedAudio && selectedFile ? (
-                          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                            Will replace existing upload
-                          </p>
-                        ) : null}
-                        {rowError ? (
-                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{rowError}</p>
-                        ) : null}
-                      </div>
-                      <div className="min-w-[220px] flex-1 sm:max-w-xs">
-                        <label className="sr-only" htmlFor={`audio-file-${track.id}`}>
-                          Audio file for {track.trackName}
-                        </label>
-                        <select
-                          id={`audio-file-${track.id}`}
-                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          value={selectedFileId}
-                          disabled={uploading}
-                          onChange={(event) =>
-                            handleAssignmentChange(track.id, event.target.value)
-                          }
-                        >
-                          <option value="">Select MP3…</option>
-                          {files.map((file) => {
-                            const fileId = getFileId(file);
-                            const usedElsewhere =
-                              assignedFileIds.has(fileId) && fileId !== selectedFileId;
-                            return (
-                              <option key={fileId} value={fileId} disabled={usedElsewhere}>
-                                {file.name}
-                                {usedElsewhere ? " (assigned elsewhere)" : ""}
-                              </option>
-                            );
-                          })}
-                        </select>
-                        {selectedFile ? (
-                          <p className="mt-1 truncate text-xs text-muted-foreground">
-                            {selectedFile.name}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
+            ) : (
+              <>
+                {conflicts.length > 0 ? (
+                  <div className="mb-4 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                    {conflicts.map((conflict) => (
+                      <p key={`${conflict.type}-${conflict.fileId}-${conflict.clipId ?? ""}`}>
+                        {conflict.message}
+                      </p>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                ) : null}
 
-            {unassignedFiles.length > 0 ? (
-              <div className="mt-4 rounded-lg border border-dashed border-border p-3">
-                <p className="text-sm font-medium">Unassigned files</p>
-                <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                  {unassignedFiles.map((file) => (
-                    <li key={getFileId(file)} className="truncate">
-                      {file.name}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+                {unmatchedTracks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No unmatched tracks.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {unmatchedTracks.map((track, index) => {
+                      const selectedFileId = assignments[track.id] ?? "";
+                      const selectedFile = selectedFileId ? fileById.get(selectedFileId) : null;
+                      const rowError = uploadErrors[track.id];
+
+                      return (
+                        <div
+                          key={track.id}
+                          className="rounded-lg border border-border bg-card p-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs text-muted-foreground">Track {index + 1}</p>
+                              <p className="font-medium">{track.trackName}</p>
+                              <p className="text-sm text-muted-foreground">{track.artistName}</p>
+                              {track.hasUploadedAudio && selectedFile ? (
+                                <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                  Will replace existing upload
+                                </p>
+                              ) : null}
+                              {rowError ? (
+                                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                                  {rowError}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="min-w-[220px] flex-1 sm:max-w-xs">
+                              <label className="sr-only" htmlFor={`audio-file-${track.id}`}>
+                                Audio file for {track.trackName}
+                              </label>
+                              <select
+                                id={`audio-file-${track.id}`}
+                                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                value={selectedFileId}
+                                disabled={uploading}
+                                onChange={(event) =>
+                                  handleAssignmentChange(track.id, event.target.value)
+                                }
+                              >
+                                <option value="">Select MP3…</option>
+                                {files.map((file) => {
+                                  const fileId = getFileId(file);
+                                  const usedElsewhere =
+                                    assignedFileIds.has(fileId) && fileId !== selectedFileId;
+                                  return (
+                                    <option key={fileId} value={fileId} disabled={usedElsewhere}>
+                                      {file.name}
+                                      {usedElsewhere ? " (assigned elsewhere)" : ""}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              {selectedFile ? (
+                                <p className="mt-1 truncate text-xs text-muted-foreground">
+                                  {selectedFile.name}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {unassignedFiles.length > 0 ? (
+                  <div className="mt-4 rounded-lg border border-dashed border-border p-3">
+                    <p className="text-sm font-medium">Unassigned files</p>
+                    <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                      {unassignedFiles.map((file) => (
+                        <li key={getFileId(file)} className="truncate">
+                          {file.name}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-4">
-            <div>
-              <input
-                ref={addMoreInputRef}
-                type="file"
-                accept=".mp3,audio/mpeg"
-                multiple
-                className="hidden"
-                onChange={(event) => {
-                  const picked = [...(event.target.files ?? [])];
-                  handleAddMoreFiles(picked);
-                  event.target.value = "";
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={uploading}
-                onClick={() => addMoreInputRef.current?.click()}
-              >
-                Add more files
-              </Button>
-            </div>
+            {!allTracksMatched ? (
+              <div>
+                <input
+                  ref={addMoreInputRef}
+                  type="file"
+                  accept=".mp3,audio/mpeg"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    const picked = [...(event.target.files ?? [])];
+                    handleAddMoreFiles(picked);
+                    event.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploading}
+                  onClick={() => addMoreInputRef.current?.click()}
+                >
+                  Add more files
+                </Button>
+              </div>
+            ) : (
+              <div />
+            )}
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -391,7 +454,7 @@ export function SessionAudioUploadDialog({
                 Cancel
               </Button>
               <Button type="button" disabled={!canSubmit} onClick={handleSubmitClick}>
-                {uploading ? "Uploading…" : "Submit uploads"}
+                {uploading ? "Uploading…" : "Start uploading"}
               </Button>
             </div>
           </div>

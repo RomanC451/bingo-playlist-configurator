@@ -405,7 +405,6 @@ function SessionsContent() {
                 showMemberPhotos={showMemberPhotos}
                 onPlay={(id) => router.push(`/sessions/${id}/play`)}
                 onEdit={(id) => router.push(`/sessions/${id}/edit`)}
-                onReview={(id) => router.push(`/sessions/${id}/review`)}
                 onTeamProgress={(id) => setTeamProgressSessionId(id)}
                 onDelete={
                   canDeleteSessions

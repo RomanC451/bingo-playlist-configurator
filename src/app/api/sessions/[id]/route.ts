@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api-auth";
 import { prisma } from "@/lib/db";
-import { deleteSessionAudioFolder, isS3AudioConfigError } from "@/lib/s3-audio";
+import { deleteAudioObjects, isS3AudioConfigError } from "@/lib/s3-audio";
 import {
   apiErrorResponse,
   requireSessionAccess,
@@ -83,8 +83,17 @@ export async function DELETE(_request: Request, context: RouteContext) {
   try {
     await requireSessionAdmin(id, session!.user!.id);
 
+    const clipsWithAudio = await prisma.trackClip.findMany({
+      where: { sessionId: id, uploadedAudioKey: { not: null } },
+      select: { uploadedAudioKey: true },
+    });
+
     try {
-      await deleteSessionAudioFolder(id);
+      await deleteAudioObjects(
+        clipsWithAudio
+          .map((clip) => clip.uploadedAudioKey)
+          .filter((key): key is string => Boolean(key)),
+      );
     } catch (err) {
       if (!isS3AudioConfigError(err)) {
         throw err;

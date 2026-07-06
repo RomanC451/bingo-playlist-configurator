@@ -4,12 +4,15 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MoreVertical, Trash2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ArrowLeft, ChevronLeft, ChevronRight, MoreVertical, Trash2 } from "lucide-react";
 import { ClipVersionReactions } from "@/components/ClipVersionReactions";
 import { NeedsAttentionButton } from "@/components/NeedsAttentionButton";
 import {
   SessionTrackNav,
+  SessionTrackNavMobile,
   SessionTrackNavSkeleton,
+  SessionTrackNavTrigger,
   type SessionTrackNavItem,
 } from "@/components/SessionTrackNav";
 import { TrackPageLayout } from "@/components/TrackPageLayout";
@@ -25,6 +28,7 @@ import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { useTrackEditLock } from "@/hooks/useTrackEditLock";
 import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTrackLocks";
 import { TrackPageSkeleton } from "@/components/page-skeletons";
+import { UploadedAudioRequiredNotice } from "@/components/UploadedAudioRequiredNotice";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import {
   useUnsavedLeaveGuard,
@@ -34,6 +38,7 @@ import { readJsonResponse } from "@/lib/read-json-response";
 import type { ClipReactionValue, VersionReactions } from "@/lib/clip-reactions";
 import type { AttentionFlaggedBy } from "@/lib/track-attention";
 import { errorToast } from "@/lib/error-toast";
+import { isTrackLockedByOther } from "@/lib/track-edit-lock";
 import { msToLabel } from "@/lib/waveform";
 import { cn } from "@/lib/utils";
 
@@ -398,10 +403,10 @@ function UnsavedChangesDialog({
   onDiscard: () => void;
   onSave: () => void;
 }) {
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
       <div
         role="dialog"
         aria-modal="true"
@@ -426,7 +431,8 @@ function UnsavedChangesDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -457,6 +463,7 @@ export default function TrackEditPage() {
   const [pendingHref, setPendingHref] = useState<LeaveDestination | null>(null);
   const [activePreviewKey, setActivePreviewKey] = useState<string | null>("editor");
   const [showAllVersions, setShowAllVersions] = useState(false);
+  const [tracksSheetOpen, setTracksSheetOpen] = useState(false);
   const clipPlayback = useClipPlayback({
     clipId: detail?.track.id ?? clipId,
     hasUploadedAudio: detail?.track.hasUploadedAudio ?? false,
@@ -550,6 +557,20 @@ export default function TrackEditPage() {
     [sessionTracks, polledLocks],
   );
 
+  const trackNavigation = useMemo(() => {
+    const sorted = [...mergedSessionTracks].sort((a, b) => a.position - b.position);
+    const index = sorted.findIndex((entry) => entry.id === clipId);
+    if (index === -1) {
+      return { prev: null, next: null, currentIndex: -1, total: sorted.length };
+    }
+    return {
+      prev: index > 0 ? sorted[index - 1]! : null,
+      next: index < sorted.length - 1 ? sorted[index + 1]! : null,
+      currentIndex: index,
+      total: sorted.length,
+    };
+  }, [clipId, mergedSessionTracks]);
+
   useEffect(() => {
     setActivePreviewKey("editor");
   }, [clipId]);
@@ -580,6 +601,7 @@ export default function TrackEditPage() {
     );
 
   const onLeaveAttempt = useCallback((destination: LeaveDestination) => {
+    setTracksSheetOpen(false);
     setPendingHref(destination);
   }, []);
 
@@ -755,10 +777,21 @@ export default function TrackEditPage() {
       if (!isDirty) {
         return true;
       }
+      setTracksSheetOpen(false);
       setPendingHref(href);
       return false;
     },
     [isDirty],
+  );
+
+  const navigateToTrack = useCallback(
+    (targetId: string) => {
+      const href = `/sessions/${sessionId}/tracks/${targetId}`;
+      if (requestNavigation(href)) {
+        router.push(href);
+      }
+    },
+    [requestNavigation, router, sessionId],
   );
 
   const handleDialogCancel = () => setPendingHref(null);
@@ -940,18 +973,19 @@ export default function TrackEditPage() {
             />
           </div>
 
-          <p className="mt-4 text-sm">
-            <Link
-              href={`/sessions/${sessionId}/edit?uploadAudio=1`}
-              className="font-medium text-emerald-700 hover:underline dark:text-emerald-300"
-            >
-              Upload session audio
-            </Link>
-            <span className="text-zinc-500">
-              {" "}
-              on the session page to preview clips here.
-            </span>
-          </p>
+          <div className="mt-3">
+            <SessionTrackNavTrigger
+              tracks={mergedSessionTracks}
+              open={tracksSheetOpen}
+              onOpen={() => setTracksSheetOpen(true)}
+            />
+          </div>
+
+          {!detail.track.hasUploadedAudio ? (
+            <div className="mt-4">
+              <UploadedAudioRequiredNotice sessionId={sessionId} />
+            </div>
+          ) : null}
 
           {clipPlayback.error && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-100">
@@ -1038,6 +1072,48 @@ export default function TrackEditPage() {
                   </div>
                 }
               />
+
+              {trackNavigation.total > 1 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1.5"
+                    disabled={
+                      !trackNavigation.prev ||
+                      isTrackLockedByOther(trackNavigation.prev.editingBy, currentUserId)
+                    }
+                    onClick={() => {
+                      if (trackNavigation.prev) {
+                        navigateToTrack(trackNavigation.prev.id);
+                      }
+                    }}
+                  >
+                    <ChevronLeft className="size-4" aria-hidden="true" />
+                    Previous
+                  </Button>
+                  <p className="text-sm text-muted-foreground">
+                    Track {trackNavigation.currentIndex + 1} of {trackNavigation.total}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-1.5"
+                    disabled={
+                      !trackNavigation.next ||
+                      isTrackLockedByOther(trackNavigation.next.editingBy, currentUserId)
+                    }
+                    onClick={() => {
+                      if (trackNavigation.next) {
+                        navigateToTrack(trackNavigation.next.id);
+                      }
+                    }}
+                  >
+                    Next
+                    <ChevronRight className="size-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              ) : null}
             </section>
 
             {versions.length > 0 && (
@@ -1076,6 +1152,16 @@ export default function TrackEditPage() {
             )}
           </div>
       </TrackPageLayout>
+
+      <SessionTrackNavMobile
+        sessionId={sessionId}
+        currentTrackId={clipId}
+        currentUserId={currentUserId}
+        tracks={mergedSessionTracks}
+        onBeforeNavigate={requestNavigation}
+        open={tracksSheetOpen}
+        onOpenChange={setTracksSheetOpen}
+      />
     </div>
   );
 }

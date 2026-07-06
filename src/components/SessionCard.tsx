@@ -8,12 +8,10 @@ import {
   Pencil,
   Play,
   Scissors,
-  Trash2,
   User,
-  ClipboardCheck,
-  Users,
 } from "lucide-react";
 import { MemberAvatarStack, type MemberUser } from "@/components/MemberAvatarStack";
+import { SessionActionsDropdown } from "@/components/SessionActionsDropdown";
 import { Button } from "@/components/ui/button";
 import { getReviewActionLabel, type UserReviewProgress } from "@/lib/track-review";
 
@@ -45,7 +43,6 @@ export function SessionCard({
   showMemberPhotos,
   onPlay,
   onEdit,
-  onReview,
   onTeamProgress,
   onDelete,
 }: {
@@ -54,11 +51,9 @@ export function SessionCard({
   showMemberPhotos?: boolean;
   onPlay?: (id: string) => void;
   onEdit?: (id: string) => void;
-  onReview?: (id: string) => void;
   onTeamProgress?: (id: string) => void;
   onDelete?: (id: string) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = session.playlistImageUrl && !imageFailed;
   const reviewActionLabel = getReviewActionLabel(session.userReviewProgress.reviewed);
@@ -138,64 +133,17 @@ export function SessionCard({
           <span className="sm:not-sr-only">Edit</span>
         </Button>
 
-        <div className="relative">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="More options"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-            onBlur={() => setTimeout(() => setMenuOpen(false), 120)}
-          >
-            <MoreVertical className="size-4" />
-          </Button>
-          {menuOpen && (
-            <div
-              className="absolute right-0 top-full z-10 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg"
-              onMouseDown={(event) => event.preventDefault()}
-            >
-              {onReview && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onReview(session.id);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-accent"
-                >
-                  <ClipboardCheck className="size-4" />
-                  {reviewActionLabel}
-                </button>
-              )}
-              {onTeamProgress && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onTeamProgress(session.id);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm transition-colors hover:bg-accent"
-                >
-                  <Users className="size-4" />
-                  Team reviews
-                </button>
-              )}
-              {onDelete && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onDelete(session.id);
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
-                >
-                  <Trash2 className="size-4" />
-                  Delete session
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <SessionActionsDropdown
+          sessionId={session.id}
+          reviewLabel={reviewActionLabel}
+          onTeamProgress={() => onTeamProgress?.(session.id)}
+          onDelete={onDelete ? () => onDelete(session.id) : undefined}
+          trigger={
+            <Button type="button" variant="ghost" size="icon" aria-label="Actions">
+              <MoreVertical className="size-4" aria-hidden="true" />
+            </Button>
+          }
+        />
       </div>
     </div>
   );

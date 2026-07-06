@@ -3,12 +3,10 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
-  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { buildSessionAudioPrefix } from "@/lib/uploaded-audio";
 
 export class S3AudioConfigError extends Error {
   constructor(message: string) {
@@ -130,34 +128,22 @@ export async function deleteAudioObject(key: string) {
   );
 }
 
-export async function deleteSessionAudioFolder(sessionId: string) {
+export async function deleteAudioObjects(keys: string[]) {
+  const uniqueKeys = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+  if (uniqueKeys.length === 0) return;
+
   const client = getS3Client();
   const bucket = getBucketName();
-  const prefix = buildSessionAudioPrefix(sessionId);
 
-  let continuationToken: string | undefined;
-  do {
-    const list = await client.send(
-      new ListObjectsV2Command({
+  for (let index = 0; index < uniqueKeys.length; index += 1000) {
+    const chunk = uniqueKeys.slice(index, index + 1000);
+    await client.send(
+      new DeleteObjectsCommand({
         Bucket: bucket,
-        Prefix: prefix,
-        ContinuationToken: continuationToken,
+        Delete: { Objects: chunk.map((Key) => ({ Key })) },
       }),
     );
-
-    const objects =
-      list.Contents?.flatMap((item) => (item.Key ? [{ Key: item.Key }] : [])) ?? [];
-    if (objects.length > 0) {
-      await client.send(
-        new DeleteObjectsCommand({
-          Bucket: bucket,
-          Delete: { Objects: objects },
-        }),
-      );
-    }
-
-    continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
-  } while (continuationToken);
+  }
 }
 
 export function isS3AudioConfigError(err: unknown): err is S3AudioConfigError {

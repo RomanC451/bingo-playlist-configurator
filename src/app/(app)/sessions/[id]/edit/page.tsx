@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { DeleteSessionDialog } from "@/components/DeleteSessionDialog";
 import { SessionEditActionsMenu } from "@/components/SessionEditActionsMenu";
 import { SessionEditorsList, type SessionEditorSummary } from "@/components/SessionEditorsList";
 import { SessionTeamProgressDialog } from "@/components/SessionTeamProgressDialog";
@@ -16,6 +17,8 @@ import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTra
 import { useRecordSessionWork } from "@/hooks/useRecordSessionWork";
 import { EditSessionPageSkeleton } from "@/components/page-skeletons";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
+import { errorMessageFromBody } from "@/lib/api-errors";
+import { isTeamManagerRole, type TeamRoleValue } from "@/lib/team-client";
 import { hasCustomClip } from "@/lib/clip-selection";
 import type { AttentionFlaggedBy } from "@/lib/track-attention";
 import type { TrackEditingBy } from "@/lib/track-edit-lock";
@@ -79,12 +82,19 @@ export default function EditSessionPage() {
   const { loading, begin, end } = useDelayedLoading();
   const [error, setError] = useState<string | null>(null);
   const [teamProgressOpen, setTeamProgressOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [currentUserTeamRole, setCurrentUserTeamRole] = useState<TeamRoleValue | null>(null);
   const polledLocks = useSessionTrackLocks(sessionId);
 
   const loadSession = useCallback(async () => {
     begin();
     try {
-      const res = await fetch(`/api/sessions/${sessionId}`);
+      const [res, teamsRes] = await Promise.all([
+        fetch(`/api/sessions/${sessionId}`),
+        fetch("/api/teams"),
+      ]);
       const data = await readJsonResponse<{ error?: string } & BingoSession>(res);
       if (!res.ok) {
         setError(data.error ?? "Failed to load session");
@@ -93,15 +103,31 @@ export default function EditSessionPage() {
         setSession(data);
         setError(null);
       }
+
+      if (teamsRes.ok) {
+        const teamsData = await readJsonResponse<{
+          activeTeamId: string | null;
+          teams: { id: string; members: { role: TeamRoleValue; user: { id: string } }[] }[];
+        }>(teamsRes);
+        const activeTeam = teamsData.teams.find((team) => team.id === teamsData.activeTeamId);
+        const myMembership = activeTeam?.members.find(
+          (member) => member.user.id === currentUserId,
+        );
+        setCurrentUserTeamRole(myMembership?.role ?? null);
+      } else {
+        setCurrentUserTeamRole(null);
+      }
+
       setInitialized(true);
     } catch {
       setError("Failed to load session");
       setSession(null);
+      setCurrentUserTeamRole(null);
       setInitialized(true);
     } finally {
       end();
     }
-  }, [begin, end, sessionId]);
+  }, [begin, currentUserId, end, sessionId]);
 
   useEffect(() => {
     void loadSession();
@@ -121,6 +147,29 @@ export default function EditSessionPage() {
   }
 
   const displayTracks = mergeTrackEditingBy(session.tracks, polledLocks);
+  const canDeleteSession =
+    currentUserTeamRole != null && isTeamManagerRole(currentUserTeamRole);
+
+  async function confirmDeleteSession() {
+    setDeleting(true);
+    setDeleteError(null);
+
+    const res = await fetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+    if (res.ok) {
+      router.push("/sessions");
+      return;
+    }
+
+    const data = await readJsonResponse<{ error?: string }>(res);
+    setDeleteError(errorMessageFromBody(data, "Failed to delete session"));
+    setDeleting(false);
+  }
+
+  function closeDeleteDialog() {
+    if (deleting) return;
+    setDeleteOpen(false);
+    setDeleteError(null);
+  }
 
   return (
     <div>
@@ -149,6 +198,14 @@ export default function EditSessionPage() {
           }))}
           onUploadComplete={() => void loadSession()}
           onTeamProgress={() => setTeamProgressOpen(true)}
+          onDelete={
+            canDeleteSession
+              ? () => {
+                  setDeleteError(null);
+                  setDeleteOpen(true);
+                }
+              : undefined
+          }
           autoOpenUpload={shouldAutoOpenUpload}
           onAutoOpenHandled={() => {
             router.replace(`/sessions/${sessionId}/edit`);
@@ -266,6 +323,15 @@ export default function EditSessionPage() {
         open={teamProgressOpen}
         currentUserId={currentUserId}
         onClose={() => setTeamProgressOpen(false)}
+      />
+
+      <DeleteSessionDialog
+        sessionName={session.name}
+        open={deleteOpen}
+        deleting={deleting}
+        error={deleteError}
+        onCancel={closeDeleteDialog}
+        onConfirm={() => void confirmDeleteSession()}
       />
     </div>
   );

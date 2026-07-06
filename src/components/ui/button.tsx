@@ -35,7 +35,7 @@ export function buttonClassName({
   className?: string;
 }) {
   return cn(
-    "inline-flex items-center justify-center transition-colors",
+    "inline-flex items-center justify-center gap-2 transition-colors",
     sizeClasses[size],
     variantClasses[variant],
     className,
