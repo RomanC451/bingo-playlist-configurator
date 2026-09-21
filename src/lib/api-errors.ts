@@ -64,7 +64,10 @@ export function rateLimitWaitTime(data: unknown): string {
 
 function spotifyFriendlyMessage(err: SpotifyApiError): string {
   if (err.message === "playlist_access_denied") {
-    return "Only playlists you created or collaborate on can be imported. Spotify editorial playlists and other users' playlists are not available in development mode.";
+    if (err.detail && !/^forbidden$/i.test(err.detail.trim())) {
+      return err.detail;
+    }
+    return "The team's linked Spotify account cannot read this playlist. Spotify only allows playlists that account owns or collaborates on — not editorial mixes or playlists from a different Spotify login.";
   }
   if (err.status === 404) {
     return err.message.includes("device")

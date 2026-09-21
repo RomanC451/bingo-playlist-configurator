@@ -19,7 +19,7 @@ export const spotifyConnectTutorial: TutorialDefinition = {
       title: "Connection card",
       target: "spotify-card",
       placement: "bottom",
-      body: "Admins connect, switch, or disconnect the team account here. Premium is required for playback.",
+      body: "Admins connect, change, or disconnect the team account here. Use Change account to sign in with a different Spotify login. Premium is required for playback.",
     },
     {
       id: "connect-button",

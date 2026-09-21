@@ -8,7 +8,7 @@ if (devHost) {
 
 const nextConfig: NextConfig = {
   allowedDevOrigins,
-  serverExternalPackages: ["mpg123-decoder"],
+  serverExternalPackages: ["mpg123-decoder", "pdfjs-dist"],
 };
 
 export default nextConfig;

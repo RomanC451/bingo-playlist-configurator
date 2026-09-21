@@ -150,20 +150,32 @@ export function SpotifyConnectionCard({
               )}
               <a
                 href={status.canLinkHere ? status.switchUrl : status.loopbackLinkUrl + "?switch=1"}
-                className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                className="shrink-0 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-secondary"
                 title="Sign in with a different Spotify account"
               >
-                Link different account
+                Change account
               </a>
               <button
                 type="button"
                 disabled={unlinking}
                 onClick={() => void handleDisconnect()}
-                className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+                className="shrink-0 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
               >
                 {unlinking ? "Disconnecting…" : "Disconnect"}
               </button>
             </>
+          )}
+          {!status.canManage && (
+            <p className="w-full text-xs text-muted-foreground">
+              Only a team owner or admin can change this account in{" "}
+              <a
+                href={`/teams/${teamId}/settings`}
+                className="font-medium text-foreground underline-offset-2 hover:underline"
+              >
+                team settings
+              </a>
+              .
+            </p>
           )}
         </>
       ) : (

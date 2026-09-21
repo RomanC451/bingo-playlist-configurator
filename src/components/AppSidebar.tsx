@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
-import { ChevronLeft, ChevronRight, LogOut, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, LogOut, Wrench, X } from "lucide-react";
 import { TeamSwitcher } from "@/components/TeamSwitcher";
 import { SidebarTutorialMenu } from "@/components/tutorial/SidebarTutorialMenu";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,19 @@ const navItems = [
     label: "Bingo sessions",
     isActive: (pathname: string) =>
       pathname === "/sessions" || pathname.startsWith("/sessions/"),
+  },
+] as const;
+
+const toolItems = [
+  {
+    href: "/tools/cheat-sheet",
+    label: "Cheat sheet",
+    isActive: (pathname: string) => pathname.startsWith("/tools/cheat-sheet"),
+  },
+  {
+    href: "/tools/giveaway",
+    label: "Giveaway",
+    isActive: (pathname: string) => pathname.startsWith("/tools/giveaway"),
   },
 ] as const;
 
@@ -64,6 +78,90 @@ function navIcon(label: string) {
   if (label === "Teams") return <TeamsIcon />;
   if (label === "Bingo sessions") return <SessionsIcon />;
   return null;
+}
+
+function navItemClass(active: boolean, expanded: boolean) {
+  return cn(
+    "flex items-center rounded-lg text-sm font-medium transition-colors",
+    expanded ? "gap-3 px-3 py-2" : "justify-center p-2.5",
+    active
+      ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
+      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
+  );
+}
+
+function ToolsNav({
+  expanded,
+  pathname,
+  onMobileClose,
+}: {
+  expanded: boolean;
+  pathname: string;
+  onMobileClose: () => void;
+}) {
+  const onToolsPage = pathname.startsWith("/tools");
+  const [open, setOpen] = useState(onToolsPage);
+
+  useEffect(() => {
+    if (onToolsPage) setOpen(true);
+  }, [onToolsPage]);
+
+  if (!expanded) {
+    return (
+      <Link
+        href="/tools"
+        onClick={onMobileClose}
+        title="Tools"
+        className={navItemClass(onToolsPage, false)}
+      >
+        <Wrench className="h-5 w-5 shrink-0" aria-hidden="true" />
+      </Link>
+    );
+  }
+
+  return (
+    <div>
+      <div className={cn(navItemClass(onToolsPage, true), "w-full pr-1")}>
+        <Link
+          href="/tools"
+          onClick={onMobileClose}
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          <Wrench className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="truncate text-left">Tools</span>
+        </Link>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-label={open ? "Collapse tools" : "Expand tools"}
+          className="rounded-md p-1 hover:bg-black/5 dark:hover:bg-white/5"
+        >
+          <ChevronDown
+            className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
+      {open && (
+        <div className="mt-1 space-y-1 pl-4">
+          {toolItems.map((item) => {
+            const active = item.isActive(pathname);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onMobileClose}
+                className={navItemClass(active, true)}
+              >
+                <span className="truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function UserAvatar({
@@ -196,19 +294,14 @@ export function AppSidebar({
                 onClick={onMobileClose}
                 title={expanded ? undefined : item.label}
                 data-tutorial={item.label === "Bingo sessions" ? "nav-sessions" : undefined}
-                className={cn(
-                  "flex items-center rounded-lg text-sm font-medium transition-colors",
-                  expanded ? "gap-3 px-3 py-2" : "justify-center p-2.5",
-                  active
-                    ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
-                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-100",
-                )}
+                className={navItemClass(active, expanded)}
               >
                 {navIcon(item.label)}
                 {expanded && <span className="truncate">{item.label}</span>}
               </Link>
             );
           })}
+          <ToolsNav expanded={expanded} pathname={pathname} onMobileClose={onMobileClose} />
         </nav>
 
         <div className={cn("border-t border-zinc-200 dark:border-zinc-800", expanded ? "px-3 py-4" : "px-2 py-3")}>

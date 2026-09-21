@@ -281,12 +281,16 @@ export async function getSpotifyProfile(teamId: string): Promise<SpotifyUserProf
   return spotifyFetch<SpotifyUserProfile>(teamId, "/me");
 }
 
-export async function getPlaylistTracks(
+function accountLabel(profile: Pick<SpotifyUserProfile, "id" | "display_name">) {
+  return profile.display_name?.trim() || profile.id;
+}
+
+async function fetchPlaylistPages(
   teamId: string,
-  playlistId: string,
+  firstPath: string,
 ): Promise<SpotifyPlaylistTrackItem[]> {
   const items: SpotifyPlaylistTrackItem[] = [];
-  let path: string | null = `/playlists/${playlistId}/items?limit=50`;
+  let path: string | null = firstPath;
 
   while (path) {
     const currentPath: string = path;
@@ -305,21 +309,93 @@ export async function getPlaylistTracks(
   return items;
 }
 
+async function playlistAccessDeniedError(
+  teamId: string,
+  playlistId: string,
+): Promise<SpotifyApiError> {
+  const fallback =
+    "The team's linked Spotify account cannot read this playlist. Spotify only allows playlists that account owns or collaborates on — not editorial mixes or playlists from a different Spotify login.";
+
+  try {
+    const [me, playlist] = await Promise.all([
+      getSpotifyProfile(teamId).catch(() => null),
+      spotifyFetch<{
+        name?: string;
+        owner?: { id?: string; display_name?: string | null };
+      }>(teamId, `/playlists/${playlistId}?fields=name,owner`).catch(() => null),
+    ]);
+
+    const linked = me ? accountLabel(me) : "the team's linked Spotify account";
+    const ownerId = playlist?.owner?.id;
+    const ownerName = playlist?.owner?.display_name?.trim() || ownerId;
+    const playlistName = playlist?.name ? `"${playlist.name}"` : "this playlist";
+
+    if (ownerId && me?.id && ownerId !== me.id) {
+      return new SpotifyApiError(
+        "playlist_access_denied",
+        403,
+        `${playlistName} is owned by ${ownerName}. The team's Spotify account is ${linked}. Spotify only allows playlists that ${linked} created or collaborates on. Duplicate it into that account, or reconnect Spotify with the owner account.`,
+      );
+    }
+
+    if (ownerId && me?.id && ownerId === me.id) {
+      return new SpotifyApiError(
+        "playlist_access_denied",
+        403,
+        `Spotify blocked track access for ${playlistName} even though it belongs to ${linked}. Generated playlists often fail. In Spotify, duplicate it into a new playlist you own and paste that link.`,
+      );
+    }
+
+    return new SpotifyApiError("playlist_access_denied", 403, fallback);
+  } catch {
+    return new SpotifyApiError("playlist_access_denied", 403, fallback);
+  }
+}
+
+export async function getPlaylistTracks(
+  teamId: string,
+  playlistId: string,
+): Promise<SpotifyPlaylistTrackItem[]> {
+  const paths = [
+    `/playlists/${playlistId}/items?limit=50&additional_types=track`,
+    `/playlists/${playlistId}/tracks?limit=50`,
+  ];
+
+  for (const firstPath of paths) {
+    try {
+      return await fetchPlaylistPages(teamId, firstPath);
+    } catch (err) {
+      if (!(err instanceof SpotifyApiError) || err.status !== 403) {
+        throw err;
+      }
+    }
+  }
+
+  throw await playlistAccessDeniedError(teamId, playlistId);
+}
+
 export async function getPlaylistInfo(
   teamId: string,
   playlistId: string,
 ): Promise<{ id: string; name: string; imageUrl: string | null }> {
-  const data = await spotifyFetch<{
-    id: string;
-    name: string;
-    images?: { url: string }[];
-  }>(teamId, `/playlists/${playlistId}?fields=id,name,images`);
+  try {
+    const data = await spotifyFetch<{
+      id: string;
+      name: string;
+      images?: { url: string }[];
+    }>(teamId, `/playlists/${playlistId}?fields=id,name,images`);
 
-  return {
-    id: data.id,
-    name: data.name,
-    imageUrl: data.images?.[0]?.url ?? null,
-  };
+    return {
+      id: data.id,
+      name: data.name,
+      imageUrl: data.images?.[0]?.url ?? null,
+    };
+  } catch (err) {
+    if (err instanceof SpotifyApiError && err.status === 403) {
+      throw await playlistAccessDeniedError(teamId, playlistId);
+    }
+    throw err;
+  }
 }
 
 export async function getPlaybackState(teamId: string): Promise<SpotifyPlaybackState | null> {

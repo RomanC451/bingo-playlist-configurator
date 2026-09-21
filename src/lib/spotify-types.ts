@@ -124,6 +124,8 @@ export interface SpotifyAudioAnalysis {
 export function extractPlaylistId(input: string): string | null {
   const trimmed = input.trim();
   if (/^[a-zA-Z0-9]{22}$/.test(trimmed)) return trimmed;
+  const uri = trimmed.match(/spotify:playlist:([a-zA-Z0-9]{22})/i);
+  if (uri) return uri[1] ?? null;
   const match = trimmed.match(/playlist\/([a-zA-Z0-9]{22})/);
   return match?.[1] ?? null;
 }
