@@ -115,6 +115,12 @@ function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
+function pdfBlob(bytes: Uint8Array) {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return new Blob([copy], { type: "application/pdf" });
+}
+
 function SourceToggle({
   source,
   onChange,
@@ -445,7 +451,7 @@ export default function CheatSheetToolPage() {
     setExportingPdf(true);
     try {
       const bytes = await generateCheatSheetPdf(result, result.playlistName);
-      const blob = new Blob([bytes], { type: "application/pdf" });
+      const blob = pdfBlob(bytes);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -461,7 +467,7 @@ export default function CheatSheetToolPage() {
 
   function downloadCardsPdf() {
     if (!result?.cardsPdfBase64) return;
-    const blob = new Blob([base64ToBytes(result.cardsPdfBase64)], { type: "application/pdf" });
+    const blob = pdfBlob(base64ToBytes(result.cardsPdfBase64));
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
