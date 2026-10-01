@@ -10,7 +10,6 @@ import { useGuestReviewIdentity } from "@/hooks/useGuestReviewIdentity";
 import {
   GUEST_REVIEW_GUEST_HEADER,
   guestReviewClipStorageKey,
-  guestReviewStartedStorageKey,
   type GuestReviewProgress,
   type GuestReviewTrackItem,
 } from "@/lib/guest-review-shared";
@@ -76,17 +75,6 @@ function GuestReviewCompleteScreen({
       </div>
     </div>
   );
-}
-
-function readStarted(shareToken: string) {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem(guestReviewStartedStorageKey(shareToken)) === "1";
-}
-
-function writeStarted(shareToken: string, started: boolean) {
-  const key = guestReviewStartedStorageKey(shareToken);
-  if (started) localStorage.setItem(key, "1");
-  else localStorage.removeItem(key);
 }
 
 function readSavedClipId(shareToken: string) {
@@ -215,8 +203,8 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
 
       if (!sessionRestored.current) {
         sessionRestored.current = true;
-        const started = readStarted(shareToken);
-        setHasStarted(started);
+        setHasStarted(false);
+        setBrowsingAfterComplete(false);
         applyState(json, { preferClipId: readSavedClipId(shareToken) });
       } else {
         applyState(json);
@@ -326,8 +314,8 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
       setError("Enter your first name to continue");
       return;
     }
-    writeStarted(shareToken, true);
     setHasStarted(true);
+    setBrowsingAfterComplete(false);
     setError(null);
     if (!viewingClipId && tracks[0]) {
       selectClip(tracks[0].id);
