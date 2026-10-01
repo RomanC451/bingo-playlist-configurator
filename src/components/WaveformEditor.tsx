@@ -51,6 +51,8 @@ interface WaveformEditorProps {
   hidePlaybackControls?: boolean;
   /** Bump when uploaded audio changes so waveform peaks reload. */
   audioRevision?: string | null;
+  /** Override default authenticated waveform fetch (e.g. public guest review). */
+  waveformUrl?: string | null;
   /** Rendered inside the card below the waveform, separated by a border. */
   footer?: ReactNode;
 }
@@ -228,6 +230,7 @@ export function WaveformEditor({
   onPlaybackChange,
   hidePlaybackControls = false,
   audioRevision = null,
+  waveformUrl = null,
   footer,
 }: WaveformEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -273,15 +276,15 @@ export function WaveformEditor({
     async () => {
       setLoading(true);
       try {
-        const params = new URLSearchParams({
-          trackName,
-          artistName,
-          sessionId,
-        });
-        if (audioRevision) {
-          params.set("v", audioRevision);
-        }
-        const res = await fetch(`/api/waveform/${trackId}?${params}`);
+        const url =
+          waveformUrl ??
+          `/api/waveform/${trackId}?${new URLSearchParams({
+            trackName,
+            artistName,
+            sessionId,
+            ...(audioRevision ? { v: audioRevision } : {}),
+          }).toString()}`;
+        const res = await fetch(url);
         const data = await readJsonResponse<{
           peaks?: number[];
           durationMs?: number;
@@ -293,7 +296,15 @@ export function WaveformEditor({
         setLoading(false);
       }
     },
-    [trackId, durationMs, trackName, artistName, sessionId, audioRevision],
+    [
+      trackId,
+      durationMs,
+      trackName,
+      artistName,
+      sessionId,
+      audioRevision,
+      waveformUrl,
+    ],
   );
 
   useEffect(() => {

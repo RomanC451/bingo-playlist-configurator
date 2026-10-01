@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReviewNotOkDialog } from "@/components/ReviewNotOkDialog";
 import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
-import { ClipPlaybackButtons } from "@/components/WaveformEditor";
+import { WaveformEditor, ClipPlaybackButtons } from "@/components/WaveformEditor";
 import { useClipPlayback } from "@/hooks/useClipPlayback";
 import { useGuestReviewIdentity } from "@/hooks/useGuestReviewIdentity";
-import { useSimulatedPlaybackProgress } from "@/hooks/useSimulatedPlaybackProgress";
 import {
   GUEST_REVIEW_GUEST_HEADER,
   type GuestReviewClip,
@@ -31,6 +30,7 @@ type PublicReviewResponse = {
 
 export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
   const { guestId, guestName, setGuestName } = useGuestReviewIdentity(shareToken);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionName, setSessionName] = useState<string | null>(null);
   const [currentClip, setCurrentClip] = useState<GuestReviewClip | null>(null);
   const [progress, setProgress] = useState<GuestReviewProgress | null>(null);
@@ -49,12 +49,15 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
     reviewShareToken: shareToken,
     guestId,
   });
-  const playback = useSimulatedPlaybackProgress(clipPlayback.playback);
-  const isClipPlaying =
-    !!playback?.is_playing && playback.item?.id === currentClip?.id;
+  const isCurrentTrack =
+    clipPlayback.playback != null &&
+    currentClip != null &&
+    clipPlayback.playback.item?.id === currentClip.id;
+  const isClipPlaying = isCurrentTrack && !!clipPlayback.playback?.is_playing;
 
   const applyState = useCallback(
     (json: PublicReviewResponse) => {
+      setSessionId(json.session?.id ?? null);
       setSessionName(json.session?.name ?? null);
       setProgress(json.progress ?? null);
       setComplete(json.complete ?? false);
@@ -102,6 +105,17 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
     autoPlayRequested.current = currentClip.id;
     void clipPlayback.playClip(currentClip.id, currentClip.startMs, currentClip.endMs);
   }, [clipPlayback.ready, clipPlayback.playClip, currentClip, hasStarted]);
+
+  const handleClipSeek = useCallback(
+    (positionMs: number) => {
+      if (!currentClip || submitting || !clipPlayback.ready) return;
+      setError(null);
+      void clipPlayback
+        .seekClip(positionMs, currentClip.startMs, currentClip.endMs)
+        .catch((err) => setError(err instanceof Error ? err.message : "Seek failed"));
+    },
+    [clipPlayback, currentClip, submitting],
+  );
 
   async function submitVerdict(verdict: "OK" | "NOT_OK", comment = "") {
     if (!guestId || !currentClip) return;
@@ -249,6 +263,29 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
                 This track has no uploaded audio yet, so playback is unavailable.
               </p>
             ) : null}
+
+            <div className="mt-4">
+              <WaveformEditor
+                readOnly
+                compact
+                hidePlaybackControls
+                clipId={currentClip.id}
+                sessionId={sessionId ?? shareToken}
+                trackId={currentClip.spotifyTrackId}
+                trackName={currentClip.trackName}
+                artistName={currentClip.artistName}
+                albumArtUrl={currentClip.albumArtUrl}
+                durationMs={currentClip.durationMs}
+                startMs={currentClip.startMs}
+                endMs={currentClip.endMs}
+                waveformUrl={`/api/public/review/${encodeURIComponent(shareToken)}/waveform/${encodeURIComponent(currentClip.id)}`}
+                playback={clipPlayback.playback}
+                onPause={
+                  clipPlayback.ready ? () => void clipPlayback.pause() : undefined
+                }
+                onSeek={clipPlayback.ready ? handleClipSeek : undefined}
+              />
+            </div>
 
             <div className="mt-6 flex items-center justify-between gap-6">
               <ClipPlaybackButtons
