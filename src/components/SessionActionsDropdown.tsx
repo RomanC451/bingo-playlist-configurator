@@ -4,6 +4,7 @@ import {
   BarChart3,
   ClipboardCheck,
   Link2,
+  MessageSquareWarning,
   MoreVertical,
   Music2,
   Trash2,
@@ -13,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ClipGuessSettingsDialog } from "@/components/ClipGuessSettingsDialog";
+import { GuestReviewSettingsDialog } from "@/components/GuestReviewSettingsDialog";
 import {
   SessionAudioUploadTrigger,
   type SessionAudioUploadTriggerHandle,
@@ -47,6 +49,7 @@ export function SessionActionsDropdown({
 }: SessionActionsDropdownProps) {
   const uploadRef = useRef<SessionAudioUploadTriggerHandle>(null);
   const [clipGuessOpen, setClipGuessOpen] = useState(false);
+  const [guestReviewOpen, setGuestReviewOpen] = useState(false);
   const hasInlineUpload = uploadTracks != null && onUploadComplete != null;
 
   const handleTutorialAction = useCallback(
@@ -101,6 +104,14 @@ export function SessionActionsDropdown({
           <ClipboardCheck className="size-4 shrink-0" aria-hidden="true" />
           {reviewLabel}
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setGuestReviewOpen(true)}>
+          <MessageSquareWarning className="size-4 shrink-0" aria-hidden="true" />
+          Guest review
+        </DropdownMenuItem>
+        <DropdownMenuItem href={`/sessions/${sessionId}/guest-reviews`}>
+          <BarChart3 className="size-4 shrink-0" aria-hidden="true" />
+          Guest review results
+        </DropdownMenuItem>
         <DropdownMenuItem href={`/sessions/${sessionId}/play`}>
           <Music2 className="size-4 shrink-0" aria-hidden="true" />
           Open play session
@@ -124,6 +135,11 @@ export function SessionActionsDropdown({
         sessionId={sessionId}
         open={clipGuessOpen}
         onClose={() => setClipGuessOpen(false)}
+      />
+      <GuestReviewSettingsDialog
+        sessionId={sessionId}
+        open={guestReviewOpen}
+        onClose={() => setGuestReviewOpen(false)}
       />
       {hasInlineUpload ? (
         <SessionAudioUploadTrigger

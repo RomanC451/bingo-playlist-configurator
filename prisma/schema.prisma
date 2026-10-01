@@ -121,6 +121,8 @@ model BingoSession {
   defaultClipDurationMs Int      @default(30000)
   guessShareEnabled     Boolean  @default(false)
   guessShareToken       String?  @unique
+  reviewShareEnabled    Boolean  @default(false)
+  reviewShareToken      String?  @unique
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
@@ -129,6 +131,7 @@ model BingoSession {
   trackClips TrackClip[]
   userActivity SessionUserActivity[]
   clipGuesses  ClipGuess[]
+  guestReviews GuestTrackClipReview[]
 
   @@index([userId])
   @@index([teamId])
@@ -173,6 +176,7 @@ model TrackClip {
   needsAttentionBy   User?         @relation("TrackNeedsAttentionBy", fields: [needsAttentionByUserId], references: [id], onDelete: SetNull)
   proposal           ClipProposal?
   reviews            TrackClipReview[]
+  guestReviews       GuestTrackClipReview[]
   editLock           TrackClipEditLock?
   clipGuessesHeard   ClipGuess[]   @relation("ClipGuessHeard")
   clipGuessesPicked  ClipGuess[]   @relation("ClipGuessPicked")
@@ -212,6 +216,7 @@ model ClipProposalVersion {
   createdBy User         @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
   reactions ClipProposalVersionReaction[]
   reviews   TrackClipReview[]
+  guestReviews GuestTrackClipReview[]
 
   @@index([proposalId, createdAt])
   @@index([createdByUserId])
@@ -272,6 +277,26 @@ model ClipGuess {
 
   @@id([sessionId, guestId, trackClipId])
   @@index([sessionId])
+}
+
+model GuestTrackClipReview {
+  sessionId   String
+  guestId     String
+  guestName   String
+  trackClipId String
+  versionId   String?
+  verdict     TrackClipReviewVerdict
+  comment     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  session   BingoSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  trackClip TrackClip            @relation(fields: [trackClipId], references: [id], onDelete: Cascade)
+  version   ClipProposalVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  @@id([sessionId, guestId, trackClipId])
+  @@index([sessionId])
+  @@index([trackClipId])
 }
 
 model ClipProposalVersionReaction {

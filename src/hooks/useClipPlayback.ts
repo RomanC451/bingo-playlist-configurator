@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { publicGuessAudioStreamPath, sessionTrackAudioStreamPath } from "@/lib/uploaded-audio";
+import {
+  publicGuessAudioStreamPath,
+  publicReviewAudioStreamPath,
+  sessionTrackAudioStreamPath,
+} from "@/lib/uploaded-audio";
 import { useHtmlAudioPlayer } from "@/hooks/useHtmlAudioPlayer";
 
 export type ClipPlaybackOptions = {
@@ -9,6 +13,8 @@ export type ClipPlaybackOptions = {
   hasUploadedAudio: boolean;
   sessionId?: string;
   shareToken?: string | null;
+  /** Public guest-review share token (mutually exclusive with ClipGuess shareToken). */
+  reviewShareToken?: string | null;
   guestId?: string | null;
   /** Cache-bust stream URL / player when uploaded audio is replaced. */
   audioRevision?: string | null;
@@ -19,6 +25,7 @@ export function useClipPlayback({
   hasUploadedAudio,
   sessionId,
   shareToken,
+  reviewShareToken,
   guestId,
   audioRevision = null,
 }: ClipPlaybackOptions) {
@@ -27,7 +34,9 @@ export function useClipPlayback({
   const getStreamUrl = useCallback(
     (targetClipId: string) => {
       let base: string;
-      if (shareToken) {
+      if (reviewShareToken) {
+        base = publicReviewAudioStreamPath(reviewShareToken, targetClipId, guestId);
+      } else if (shareToken) {
         base = publicGuessAudioStreamPath(shareToken, targetClipId, guestId);
       } else if (sessionId) {
         base = sessionTrackAudioStreamPath(sessionId, targetClipId);
@@ -38,7 +47,7 @@ export function useClipPlayback({
       const separator = base.includes("?") ? "&" : "?";
       return `${base}${separator}v=${encodeURIComponent(audioRevision)}`;
     },
-    [audioRevision, guestId, sessionId, shareToken],
+    [audioRevision, guestId, reviewShareToken, sessionId, shareToken],
   );
 
   const htmlPlayer = useHtmlAudioPlayer({

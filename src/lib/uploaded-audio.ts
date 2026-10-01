@@ -95,6 +95,17 @@ export function publicGuessAudioStreamPath(
   return `${base}?${params.toString()}`;
 }
 
+export function publicReviewAudioStreamPath(
+  shareToken: string,
+  clipId: string,
+  guestId?: string | null,
+) {
+  const base = `/api/public/review/${encodeURIComponent(shareToken)}/audio/${encodeURIComponent(clipId)}`;
+  if (!guestId) return base;
+  const params = new URLSearchParams({ guest: guestId });
+  return `${base}?${params.toString()}`;
+}
+
 export function playbackItemId(clip: { id: string }) {
   return clip.id;
 }
