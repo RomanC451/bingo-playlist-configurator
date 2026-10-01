@@ -414,25 +414,40 @@ function trackIdFromUri(trackUri: string): string {
   return trackUri.replace("spotify:track:", "");
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function waitForPlaybackTrack(
   teamId: string,
   trackId: string,
-  attempts = 3,
-  delayMs = 250,
-): Promise<void> {
+  options?: {
+    requirePlaying?: boolean;
+    attempts?: number;
+    delayMs?: number;
+  },
+): Promise<SpotifyPlaybackState | null> {
+  const attempts = options?.attempts ?? 8;
+  const delayMs = options?.delayMs ?? 350;
+  const requirePlaying = options?.requirePlaying ?? false;
+  let lastState: SpotifyPlaybackState | null = null;
+
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (attempt > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await sleep(delayMs);
     }
     try {
       const state = await getPlaybackState(teamId);
-      if (state?.item?.id === trackId) {
-        return;
-      }
+      lastState = state;
+      if (state?.item?.id !== trackId) continue;
+      if (requirePlaying && !state.is_playing) continue;
+      return state;
     } catch {
       // Ignore transient player-state read errors during verification.
     }
   }
+
+  return lastState;
 }
 
 export async function getDevices(teamId: string): Promise<SpotifyDevicesResponse> {
@@ -544,6 +559,22 @@ export async function playTrackAtPosition(
   });
 }
 
+export async function seekPlayback(
+  teamId: string,
+  positionMs: number,
+  deviceId?: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    position_ms: String(Math.max(0, Math.round(positionMs))),
+  });
+  if (deviceId) {
+    params.set("device_id", deviceId);
+  }
+  await spotifyFetch(teamId, `/me/player/seek?${params.toString()}`, {
+    method: "PUT",
+  });
+}
+
 /** Start or switch clip playback with fresh device resolution and playback verification. */
 export async function startClipPlayback(
   teamId: string,
@@ -553,7 +584,7 @@ export async function startClipPlayback(
   options?: { skipPlayabilityCheck?: boolean },
 ): Promise<void> {
   const trackId = trackIdFromUri(trackUri);
-  let resolvedDeviceId = await resolvePlaybackDeviceId(teamId, deviceId);
+  const resolvedDeviceId = await resolvePlaybackDeviceId(teamId, deviceId);
 
   if (!resolvedDeviceId) {
     throw new SpotifyApiError(
@@ -562,29 +593,92 @@ export async function startClipPlayback(
     );
   }
 
-  resolvedDeviceId = await requireConnectDevice(teamId, resolvedDeviceId);
+  const connectDeviceId = await requireConnectDevice(teamId, resolvedDeviceId);
   if (!options?.skipPlayabilityCheck) {
     await assertTrackPlayable(teamId, trackId);
   }
 
-  try {
-    await playTrackAtPosition(teamId, trackUri, positionMs, resolvedDeviceId);
-  } catch (err) {
-    if (!(err instanceof SpotifyApiError) || err.status !== 404) {
-      throw err;
-    }
-    try {
-      await transferPlayback(teamId, resolvedDeviceId, false);
-    } catch (transferErr) {
-      await ignoreSpotifyError(transferErr, 404, 403);
-    }
-    await playTrackAtPosition(teamId, trackUri, positionMs, resolvedDeviceId);
+  const targetPositionMs = Math.max(0, Math.round(positionMs));
+  // Mid-clip position_ms on /play is often a no-op on Connect (204 + idle player).
+  const preferPlayThenSeek = targetPositionMs > 1500;
+
+  async function playDirect() {
+    await playTrackAtPosition(
+      teamId,
+      trackUri,
+      targetPositionMs,
+      connectDeviceId,
+    );
   }
 
+  async function playThenSeek() {
+    await playTrackAtPosition(teamId, trackUri, 0, connectDeviceId);
+    await sleep(400);
+    if (targetPositionMs > 0) {
+      await seekPlayback(teamId, targetPositionMs, connectDeviceId);
+    }
+  }
+
+  async function runPlay(primary: () => Promise<void>) {
+    try {
+      await primary();
+    } catch (err) {
+      if (
+        !(err instanceof SpotifyApiError) ||
+        (err.status !== 404 && err.status !== 403)
+      ) {
+        throw err;
+      }
+      try {
+        await transferPlayback(teamId, connectDeviceId, false);
+        await sleep(300);
+      } catch (transferErr) {
+        await ignoreSpotifyError(transferErr, 404, 403);
+      }
+      await primary();
+    }
+  }
+
+  // Activate the Connect device first so play lands on desktop/mobile.
   try {
-    await waitForPlaybackTrack(teamId, trackId);
-  } catch {
-    // Spotify may be slow to report state; play command already succeeded.
+    await transferPlayback(teamId, connectDeviceId, false);
+    await sleep(300);
+  } catch (transferErr) {
+    await ignoreSpotifyError(transferErr, 404, 403);
+  }
+
+  await runPlay(preferPlayThenSeek ? playThenSeek : playDirect);
+
+  let state = await waitForPlaybackTrack(teamId, trackId, {
+    requirePlaying: true,
+    attempts: 6,
+    delayMs: 300,
+  });
+
+  const started =
+    state?.item?.id === trackId && Boolean(state.is_playing);
+
+  if (!started) {
+    await runPlay(preferPlayThenSeek ? playDirect : playThenSeek);
+    state = await waitForPlaybackTrack(teamId, trackId, {
+      requirePlaying: true,
+      attempts: 8,
+      delayMs: 350,
+    });
+  }
+
+  if (state?.item?.id !== trackId) {
+    throw new SpotifyApiError(
+      "Spotify accepted the play request but did not start the track on your device. Click Play once more, or pause/play a song in the Spotify desktop app and try again.",
+      409,
+    );
+  }
+
+  if (!state?.is_playing) {
+    throw new SpotifyApiError(
+      "Spotify loaded the track but stayed paused. Press Play in the Spotify desktop app once, then try the bingo Play button again.",
+      409,
+    );
   }
 }
 

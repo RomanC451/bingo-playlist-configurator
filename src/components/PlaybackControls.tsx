@@ -499,8 +499,16 @@ export function PlaybackControls({ sessionId }: PlaybackControlsProps) {
           </button>
           <button
             type="button"
-            disabled={actionLoading}
-            onClick={togglePlayPause}
+            disabled={actionLoading || noConnectDevice}
+            onClick={() => {
+              if (noConnectDevice) {
+                setError(
+                  "No Spotify Connect device found. Open the Spotify desktop or mobile app, play any song briefly, then refresh this page.",
+                );
+                return;
+              }
+              void togglePlayPause();
+            }}
             className="inline-flex min-w-[6.5rem] items-center justify-center rounded-lg bg-emerald-600 px-6 py-2 font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             {isClipPlaying ? "Pause" : "Play"}
