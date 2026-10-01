@@ -225,11 +225,25 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
 
   useEffect(() => {
     if (!hasStarted || !currentClip || !clipPlayback.ready) return;
+    if (complete && !browsingAfterComplete) return;
     if (autoPlayRequested.current === currentClip.id) return;
     if (!currentClip.hasUploadedAudio) return;
     autoPlayRequested.current = currentClip.id;
     void clipPlayback.playClip(currentClip.id, currentClip.startMs, currentClip.endMs);
-  }, [clipPlayback.ready, clipPlayback.playClip, currentClip, hasStarted]);
+  }, [
+    browsingAfterComplete,
+    clipPlayback.ready,
+    clipPlayback.playClip,
+    complete,
+    currentClip,
+    hasStarted,
+  ]);
+
+  useEffect(() => {
+    if (!(complete && !browsingAfterComplete)) return;
+    autoPlayRequested.current = null;
+    void clipPlayback.pause();
+  }, [browsingAfterComplete, clipPlayback.pause, complete]);
 
   const handleClipSeek = useCallback(
     (positionMs: number) => {
