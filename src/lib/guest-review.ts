@@ -10,6 +10,7 @@ import type {
   GuestReviewClip,
   GuestReviewProgress,
   GuestReviewSummary,
+  GuestReviewTrackItem,
 } from "@/lib/guest-review-shared";
 
 export {
@@ -17,9 +18,12 @@ export {
   GUEST_REVIEW_GUEST_QUERY_PARAM,
   guestReviewIdStorageKey,
   guestReviewNameStorageKey,
+  guestReviewStartedStorageKey,
+  guestReviewClipStorageKey,
   type GuestReviewClip,
   type GuestReviewProgress,
   type GuestReviewSummary,
+  type GuestReviewTrackItem,
 } from "@/lib/guest-review-shared";
 
 export function generateReviewShareToken() {
@@ -97,6 +101,31 @@ export function mapGuestReviewClip(clip: TrackClipWithProposal): GuestReviewClip
     hasUploadedAudio: hasUploadedAudio(clip),
     playbackSource: playbackRange.source,
   };
+}
+
+export function mapGuestReviewTrackItem(
+  clip: TrackClipWithProposal,
+  review: Pick<GuestReviewRecord, "versionId" | "verdict" | "comment"> | null | undefined,
+): GuestReviewTrackItem {
+  const range = resolveTrackPlaybackRange(clip);
+  const isCurrent = isReviewCurrent(review, range);
+  return {
+    ...mapGuestReviewClip(clip),
+    review:
+      isCurrent && review
+        ? {
+            verdict: review.verdict,
+            comment: review.comment,
+          }
+        : null,
+  };
+}
+
+export function buildGuestReviewTracks(
+  clips: TrackClipWithProposal[],
+  reviewsByClipId: Map<string, Pick<GuestReviewRecord, "versionId" | "verdict" | "comment">>,
+): GuestReviewTrackItem[] {
+  return clips.map((clip) => mapGuestReviewTrackItem(clip, reviewsByClipId.get(clip.id)));
 }
 
 export function buildGuestReviewQueue(

@@ -4,6 +4,7 @@ import {
   GUEST_REVIEW_GUEST_HEADER,
   ReviewShareError,
   buildGuestReviewQueue,
+  buildGuestReviewTracks,
   computeGuestReviewProgress,
   mapGuestReviewClip,
   resolveReviewShareSession,
@@ -38,6 +39,40 @@ function reviewShareResponse(err: unknown) {
   return null;
 }
 
+async function loadGuestReviewState(sessionId: string, guestId: string, clips: Parameters<typeof buildGuestReviewTracks>[0]) {
+  const existingReviews = await prisma.guestTrackClipReview.findMany({
+    where: { sessionId, guestId },
+    select: {
+      trackClipId: true,
+      versionId: true,
+      verdict: true,
+      comment: true,
+      guestName: true,
+    },
+  });
+
+  const reviewsByClipId = new Map(
+    existingReviews.map((review) => [review.trackClipId, review]),
+  );
+  const tracks = buildGuestReviewTracks(clips, reviewsByClipId);
+  const queue = buildGuestReviewQueue(clips, reviewsByClipId);
+  const progress = computeGuestReviewProgress(clips.length, queue.length);
+
+  return {
+    tracks,
+    queue,
+    progress,
+    complete: queue.length === 0,
+    current: queue[0] ?? null,
+    guestName: existingReviews[0]?.guestName ?? null,
+    reviews: existingReviews.map((review) => ({
+      trackClipId: review.trackClipId,
+      verdict: review.verdict,
+      comment: review.comment,
+    })),
+  };
+}
+
 export async function GET(request: Request, context: RouteContext) {
   const { shareToken } = await context.params;
   const guestId = readGuestId(request);
@@ -48,36 +83,15 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const bingoSession = await resolveReviewShareSession(shareToken);
-    const existingReviews = await prisma.guestTrackClipReview.findMany({
-      where: { sessionId: bingoSession.id, guestId },
-      select: {
-        trackClipId: true,
-        versionId: true,
-        verdict: true,
-        comment: true,
-        guestName: true,
-      },
-    });
-
-    const reviewsByClipId = new Map(
-      existingReviews.map((review) => [review.trackClipId, review]),
+    const state = await loadGuestReviewState(
+      bingoSession.id,
+      guestId,
+      bingoSession.trackClips,
     );
-    const queue = buildGuestReviewQueue(bingoSession.trackClips, reviewsByClipId);
-    const progress = computeGuestReviewProgress(bingoSession.trackClips.length, queue.length);
-    const current = queue[0] ?? null;
-    const savedName = existingReviews[0]?.guestName ?? null;
 
     return NextResponse.json({
       session: { id: bingoSession.id, name: bingoSession.name },
-      progress,
-      complete: queue.length === 0,
-      current,
-      guestName: savedName,
-      reviews: existingReviews.map((review) => ({
-        trackClipId: review.trackClipId,
-        verdict: review.verdict,
-        comment: review.comment,
-      })),
+      ...state,
     });
   } catch (err) {
     const response = reviewShareResponse(err);
@@ -137,36 +151,17 @@ export async function POST(request: Request, context: RouteContext) {
       },
     });
 
-    const existingReviews = await prisma.guestTrackClipReview.findMany({
-      where: { sessionId: bingoSession.id, guestId },
-      select: {
-        trackClipId: true,
-        versionId: true,
-        verdict: true,
-        comment: true,
-        guestName: true,
-      },
-    });
-
-    const reviewsByClipId = new Map(
-      existingReviews.map((review) => [review.trackClipId, review]),
+    const state = await loadGuestReviewState(
+      bingoSession.id,
+      guestId,
+      bingoSession.trackClips,
     );
-    const queue = buildGuestReviewQueue(bingoSession.trackClips, reviewsByClipId);
-    const progress = computeGuestReviewProgress(bingoSession.trackClips.length, queue.length);
-    const current = queue[0] ?? null;
 
     return NextResponse.json({
       session: { id: bingoSession.id, name: bingoSession.name },
-      progress,
-      complete: queue.length === 0,
-      current,
       guestName: parsed.data.guestName,
       reviewed: mapGuestReviewClip(clip),
-      reviews: existingReviews.map((review) => ({
-        trackClipId: review.trackClipId,
-        verdict: review.verdict,
-        comment: review.comment,
-      })),
+      ...state,
     });
   } catch (err) {
     const response = reviewShareResponse(err);

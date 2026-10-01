@@ -9,6 +9,14 @@ export function guestReviewNameStorageKey(shareToken: string) {
   return `guest-review-guest-name:${shareToken}`;
 }
 
+export function guestReviewStartedStorageKey(shareToken: string) {
+  return `guest-review-started:${shareToken}`;
+}
+
+export function guestReviewClipStorageKey(shareToken: string) {
+  return `guest-review-clip:${shareToken}`;
+}
+
 export type GuestReviewProgress = {
   reviewed: number;
   remaining: number;
@@ -27,6 +35,13 @@ export type GuestReviewClip = {
   endMs: number;
   hasUploadedAudio: boolean;
   playbackSource: "saved" | "default";
+};
+
+export type GuestReviewTrackItem = GuestReviewClip & {
+  review: {
+    verdict: "OK" | "NOT_OK";
+    comment: string | null;
+  } | null;
 };
 
 export type GuestReviewSummary = {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ReviewNotOkDialog } from "@/components/ReviewNotOkDialog";
 import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
 import { WaveformEditor, ClipPlaybackButtons } from "@/components/WaveformEditor";
@@ -8,8 +9,10 @@ import { useClipPlayback } from "@/hooks/useClipPlayback";
 import { useGuestReviewIdentity } from "@/hooks/useGuestReviewIdentity";
 import {
   GUEST_REVIEW_GUEST_HEADER,
-  type GuestReviewClip,
+  guestReviewClipStorageKey,
+  guestReviewStartedStorageKey,
   type GuestReviewProgress,
+  type GuestReviewTrackItem,
 } from "@/lib/guest-review-shared";
 import { readJsonResponse } from "@/lib/read-json-response";
 import { msToLabel } from "@/lib/waveform";
@@ -23,16 +26,54 @@ type PublicReviewResponse = {
   session?: { id: string; name: string };
   progress?: GuestReviewProgress;
   complete?: boolean;
-  current?: GuestReviewClip | null;
+  current?: GuestReviewTrackItem | null;
+  tracks?: GuestReviewTrackItem[];
   guestName?: string | null;
   error?: string;
 };
+
+function readStarted(shareToken: string) {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(guestReviewStartedStorageKey(shareToken)) === "1";
+}
+
+function writeStarted(shareToken: string, started: boolean) {
+  const key = guestReviewStartedStorageKey(shareToken);
+  if (started) localStorage.setItem(key, "1");
+  else localStorage.removeItem(key);
+}
+
+function readSavedClipId(shareToken: string) {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(guestReviewClipStorageKey(shareToken));
+}
+
+function writeSavedClipId(shareToken: string, clipId: string | null) {
+  const key = guestReviewClipStorageKey(shareToken);
+  if (clipId) localStorage.setItem(key, clipId);
+  else localStorage.removeItem(key);
+}
+
+function resolveInitialClipId(
+  tracks: GuestReviewTrackItem[],
+  preferredClipId: string | null,
+  queueFirstId: string | null,
+) {
+  if (preferredClipId && tracks.some((track) => track.id === preferredClipId)) {
+    return preferredClipId;
+  }
+  if (queueFirstId && tracks.some((track) => track.id === queueFirstId)) {
+    return queueFirstId;
+  }
+  return tracks[0]?.id ?? null;
+}
 
 export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
   const { guestId, guestName, setGuestName } = useGuestReviewIdentity(shareToken);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionName, setSessionName] = useState<string | null>(null);
-  const [currentClip, setCurrentClip] = useState<GuestReviewClip | null>(null);
+  const [tracks, setTracks] = useState<GuestReviewTrackItem[]>([]);
+  const [viewingClipId, setViewingClipId] = useState<string | null>(null);
   const [progress, setProgress] = useState<GuestReviewProgress | null>(null);
   const [complete, setComplete] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
@@ -42,6 +83,22 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
   const [error, setError] = useState<string | null>(null);
   const [notOkDialogOpen, setNotOkDialogOpen] = useState(false);
   const autoPlayRequested = useRef<string | null>(null);
+  const sessionRestored = useRef(false);
+  const viewingClipIdRef = useRef<string | null>(null);
+
+  const currentClip = useMemo(
+    () => tracks.find((track) => track.id === viewingClipId) ?? null,
+    [tracks, viewingClipId],
+  );
+
+  const currentIndex = useMemo(() => {
+    if (!viewingClipId) return -1;
+    return tracks.findIndex((track) => track.id === viewingClipId);
+  }, [tracks, viewingClipId]);
+
+  useEffect(() => {
+    viewingClipIdRef.current = viewingClipId;
+  }, [viewingClipId]);
 
   const clipPlayback = useClipPlayback({
     clipId: currentClip?.id ?? null,
@@ -55,19 +112,44 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
     clipPlayback.playback.item?.id === currentClip.id;
   const isClipPlaying = isCurrentTrack && !!clipPlayback.playback?.is_playing;
 
+  const selectClip = useCallback(
+    (clipId: string | null) => {
+      setViewingClipId(clipId);
+      viewingClipIdRef.current = clipId;
+      writeSavedClipId(shareToken, clipId);
+      autoPlayRequested.current = null;
+    },
+    [shareToken],
+  );
+
   const applyState = useCallback(
-    (json: PublicReviewResponse) => {
+    (json: PublicReviewResponse, options?: { preferClipId?: string | null }) => {
+      const nextTracks = json.tracks ?? [];
       setSessionId(json.session?.id ?? null);
       setSessionName(json.session?.name ?? null);
       setProgress(json.progress ?? null);
       setComplete(json.complete ?? false);
-      setCurrentClip(json.current ?? null);
+      setTracks(nextTracks);
+
+      const preferred =
+        options?.preferClipId ??
+        viewingClipIdRef.current ??
+        readSavedClipId(shareToken);
+      const nextClipId = resolveInitialClipId(
+        nextTracks,
+        preferred,
+        json.current?.id ?? null,
+      );
+      setViewingClipId(nextClipId);
+      viewingClipIdRef.current = nextClipId;
+      writeSavedClipId(shareToken, nextClipId);
+
       const nextName = json.guestName?.trim();
       if (nextName) {
         setGuestName(nextName);
       }
     },
-    [setGuestName],
+    [setGuestName, shareToken],
   );
 
   const loadState = useCallback(async () => {
@@ -83,7 +165,15 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
         setInitialized(true);
         return;
       }
-      applyState(json);
+
+      if (!sessionRestored.current) {
+        sessionRestored.current = true;
+        const started = readStarted(shareToken);
+        setHasStarted(started);
+        applyState(json, { preferClipId: readSavedClipId(shareToken) });
+      } else {
+        applyState(json);
+      }
       setError(null);
       setInitialized(true);
     } catch (err) {
@@ -117,6 +207,17 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
     [clipPlayback, currentClip, submitting],
   );
 
+  const goToRelativeTrack = useCallback(
+    (delta: number) => {
+      if (currentIndex < 0 || tracks.length === 0) return;
+      const nextIndex = currentIndex + delta;
+      if (nextIndex < 0 || nextIndex >= tracks.length) return;
+      void clipPlayback.pause();
+      selectClip(tracks[nextIndex]!.id);
+    },
+    [clipPlayback, currentIndex, selectClip, tracks],
+  );
+
   async function submitVerdict(verdict: "OK" | "NOT_OK", comment = "") {
     if (!guestId || !currentClip) return;
     const trimmedName = guestName.trim();
@@ -148,12 +249,37 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
         return;
       }
       setNotOkDialogOpen(false);
-      applyState(json);
+
+      const nextTracks = json.tracks ?? [];
+      const submittedIndex = nextTracks.findIndex((track) => track.id === currentClip.id);
+      const nextUnreviewed = nextTracks.find(
+        (track, index) => index > submittedIndex && track.review == null,
+      );
+      const sequentialNext =
+        submittedIndex >= 0 && submittedIndex < nextTracks.length - 1
+          ? nextTracks[submittedIndex + 1]
+          : null;
+      const preferClipId = nextUnreviewed?.id ?? sequentialNext?.id ?? currentClip.id;
+
+      applyState(json, { preferClipId });
       autoPlayRequested.current = null;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save review");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function handleStart() {
+    if (!guestName.trim()) {
+      setError("Enter your first name to continue");
+      return;
+    }
+    writeStarted(shareToken, true);
+    setHasStarted(true);
+    setError(null);
+    if (!viewingClipId && tracks[0]) {
+      selectClip(tracks[0].id);
     }
   }
 
@@ -175,25 +301,22 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
     );
   }
 
-  if (!complete && !hasStarted) {
+  if (!hasStarted) {
     return (
       <GuestReviewEntryScreen
         sessionName={sessionName}
         progress={progress}
         guestName={guestName}
         onGuestNameChange={setGuestName}
-        onStart={() => {
-          if (!guestName.trim()) {
-            setError("Enter your first name to continue");
-            return;
-          }
-          setHasStarted(true);
-          setError(null);
-        }}
+        onStart={handleStart}
         loading={clipPlayback.actionLoading}
       />
     );
   }
+
+  const canGoPrev = currentIndex > 0;
+  const canGoNext = currentIndex >= 0 && currentIndex < tracks.length - 1;
+  const existingVerdict = currentClip?.review?.verdict ?? null;
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-8">
@@ -211,24 +334,47 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
         </div>
       )}
 
-      {complete && !currentClip ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-8 text-center dark:border-emerald-900 dark:bg-emerald-950">
-          <h2 className="text-xl font-semibold text-emerald-800 dark:text-emerald-200">
-            Thanks, {guestName.trim() || "guest"}!
-          </h2>
-          <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">
-            You reviewed every clip
-            {progress && progress.total > 0 ? ` (${progress.reviewed} of ${progress.total})` : ""}.
+      {complete && tracks.length > 0 ? (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center dark:border-emerald-900 dark:bg-emerald-950">
+          <p className="font-medium text-emerald-800 dark:text-emerald-200">
+            Thanks, {guestName.trim() || "guest"}! All clips are reviewed.
+          </p>
+          <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
+            You can still move back and forward to change any verdict.
           </p>
         </div>
-      ) : currentClip ? (
+      ) : null}
+
+      {currentClip ? (
         <div className="space-y-6">
-          {progress ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-zinc-500">
-              {progress.remaining} remaining · {progress.reviewed} reviewed · {progress.total}{" "}
-              total
+              Track {currentIndex + 1} of {tracks.length}
+              {progress
+                ? ` · ${progress.reviewed} reviewed · ${progress.remaining} remaining`
+                : ""}
             </p>
-          ) : null}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={!canGoPrev || submitting}
+                onClick={() => goToRelativeTrack(-1)}
+                className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+              >
+                <ChevronLeft className="size-4" aria-hidden="true" />
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={!canGoNext || submitting}
+                onClick={() => goToRelativeTrack(1)}
+                className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+              >
+                Next
+                <ChevronRight className="size-4" aria-hidden="true" />
+              </button>
+            </div>
+          </div>
 
           <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="flex gap-4">
@@ -255,6 +401,20 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
                     <span className="ml-2 text-zinc-400">Default</span>
                   )}
                 </p>
+                {existingVerdict ? (
+                  <p
+                    className={`mt-2 text-sm font-medium ${
+                      existingVerdict === "OK"
+                        ? "text-emerald-600"
+                        : "text-rose-600"
+                    }`}
+                  >
+                    Your verdict: {existingVerdict === "OK" ? "OK" : "Not OK"}
+                    {currentClip.review?.comment
+                      ? ` — ${currentClip.review.comment}`
+                      : ""}
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -331,7 +491,7 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
                 onClick={() => void submitVerdict("OK")}
                 className="inline-flex min-w-[6rem] items-center justify-center rounded-lg bg-emerald-600 px-6 py-2 font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                OK
+                {existingVerdict === "OK" ? "Keep OK" : "OK"}
               </button>
               <button
                 type="button"
@@ -339,12 +499,16 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
                 onClick={() => setNotOkDialogOpen(true)}
                 className="inline-flex min-w-[6rem] items-center justify-center rounded-lg bg-rose-600 px-6 py-2 font-medium text-white hover:bg-rose-700 disabled:opacity-50"
               >
-                Not OK
+                {existingVerdict === "NOT_OK" ? "Edit Not OK" : "Not OK"}
               </button>
             </div>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-xl border border-border p-8 text-center text-muted-foreground">
+          No tracks available for review.
+        </div>
+      )}
 
       <ReviewNotOkDialog
         open={notOkDialogOpen}
