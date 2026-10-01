@@ -53,15 +53,19 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
   const isClipPlaying =
     !!playback?.is_playing && playback.item?.id === currentClip?.id;
 
-  const applyState = useCallback((json: PublicReviewResponse) => {
-    setSessionName(json.session?.name ?? null);
-    setProgress(json.progress ?? null);
-    setComplete(json.complete ?? false);
-    setCurrentClip(json.current ?? null);
-    if (json.guestName) {
-      setGuestName(json.guestName);
-    }
-  }, [setGuestName]);
+  const applyState = useCallback(
+    (json: PublicReviewResponse) => {
+      setSessionName(json.session?.name ?? null);
+      setProgress(json.progress ?? null);
+      setComplete(json.complete ?? false);
+      setCurrentClip(json.current ?? null);
+      const nextName = json.guestName?.trim();
+      if (nextName) {
+        setGuestName(nextName);
+      }
+    },
+    [setGuestName],
+  );
 
   const loadState = useCallback(async () => {
     if (!guestId) return;

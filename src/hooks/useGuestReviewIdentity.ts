@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   guestReviewIdStorageKey,
   guestReviewNameStorageKey,
@@ -29,17 +29,20 @@ export function useGuestReviewIdentity(shareToken: string | null) {
     setGuestNameState(localStorage.getItem(nameKey) ?? "");
   }, [shareToken]);
 
-  function setGuestName(name: string) {
-    const trimmed = name.trim();
-    setGuestNameState(name);
-    if (!shareToken) return;
-    const nameKey = guestReviewNameStorageKey(shareToken);
-    if (trimmed) {
-      localStorage.setItem(nameKey, trimmed);
-    } else {
-      localStorage.removeItem(nameKey);
-    }
-  }
+  const setGuestName = useCallback(
+    (name: string) => {
+      const trimmed = name.trim();
+      setGuestNameState(name);
+      if (!shareToken) return;
+      const nameKey = guestReviewNameStorageKey(shareToken);
+      if (trimmed) {
+        localStorage.setItem(nameKey, trimmed);
+      } else {
+        localStorage.removeItem(nameKey);
+      }
+    },
+    [shareToken],
+  );
 
   return { guestId, guestName, setGuestName };
 }
