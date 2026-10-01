@@ -159,9 +159,9 @@ export async function POST(request: Request, context: RouteContext) {
 
     return NextResponse.json({
       session: { id: bingoSession.id, name: bingoSession.name },
-      guestName: parsed.data.guestName,
       reviewed: mapGuestReviewClip(clip),
       ...state,
+      guestName: parsed.data.guestName,
     });
   } catch (err) {
     const response = reviewShareResponse(err);
