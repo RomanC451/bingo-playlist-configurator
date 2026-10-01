@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
 import { ReviewNotOkDialog } from "@/components/ReviewNotOkDialog";
 import { SpotifyVolumeSlider } from "@/components/SpotifyVolumeSlider";
 import { WaveformEditor, ClipPlaybackButtons } from "@/components/WaveformEditor";
@@ -31,6 +31,52 @@ type PublicReviewResponse = {
   guestName?: string | null;
   error?: string;
 };
+
+function GuestReviewCompleteScreen({
+  sessionName,
+  guestName,
+  progress,
+  onReviewAgain,
+}: {
+  sessionName: string | null;
+  guestName: string;
+  progress: GuestReviewProgress | null;
+  onReviewAgain: () => void;
+}) {
+  const total = progress?.total ?? 0;
+  const reviewed = progress?.reviewed ?? total;
+
+  return (
+    <div className="mx-auto flex min-h-[70vh] w-full max-w-lg items-center px-4 py-12">
+      <div className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center shadow-sm dark:border-emerald-900 dark:bg-emerald-950">
+        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-emerald-600/15 text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="size-8" aria-hidden="true" />
+        </div>
+        <p className="text-xs font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+          Clip review complete
+        </p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-emerald-900 dark:text-emerald-100">
+          Thanks, {guestName.trim() || "guest"}!
+        </h1>
+        <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-300">
+          {sessionName ? `You finished reviewing “${sessionName}”.` : "You finished reviewing every clip."}
+        </p>
+        {total > 0 ? (
+          <p className="mt-4 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+            {reviewed} of {total} clip{total === 1 ? "" : "s"} reviewed
+          </p>
+        ) : null}
+        <button
+          type="button"
+          onClick={onReviewAgain}
+          className="mt-8 w-full rounded-lg border border-emerald-300 bg-white px-4 py-2.5 text-sm font-medium text-emerald-800 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100 dark:hover:bg-emerald-900"
+        >
+          Review tracks again
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function readStarted(shareToken: string) {
   if (typeof window === "undefined") return false;
@@ -77,6 +123,7 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
   const [progress, setProgress] = useState<GuestReviewProgress | null>(null);
   const [complete, setComplete] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const [browsingAfterComplete, setBrowsingAfterComplete] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -262,6 +309,10 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
       const preferClipId = nextUnreviewed?.id ?? sequentialNext?.id ?? currentClip.id;
 
       applyState(json, { preferClipId });
+      if (json.complete) {
+        setBrowsingAfterComplete(false);
+        void clipPlayback.pause();
+      }
       autoPlayRequested.current = null;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save review");
@@ -314,6 +365,22 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
     );
   }
 
+  if (complete && !browsingAfterComplete) {
+    return (
+      <GuestReviewCompleteScreen
+        sessionName={sessionName}
+        guestName={guestName}
+        progress={progress}
+        onReviewAgain={() => {
+          setBrowsingAfterComplete(true);
+          if (tracks[0]) {
+            selectClip(tracks[0].id);
+          }
+        }}
+      />
+    );
+  }
+
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < tracks.length - 1;
   const existingVerdict = currentClip?.review?.verdict ?? null;
@@ -334,14 +401,21 @@ export function GuestReviewContent({ shareToken }: GuestReviewContentProps) {
         </div>
       )}
 
-      {complete && tracks.length > 0 ? (
-        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center dark:border-emerald-900 dark:bg-emerald-950">
-          <p className="font-medium text-emerald-800 dark:text-emerald-200">
-            Thanks, {guestName.trim() || "guest"}! All clips are reviewed.
+      {complete ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950">
+          <p className="text-sm text-emerald-800 dark:text-emerald-200">
+            All clips are reviewed. You can still change any verdict.
           </p>
-          <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
-            You can still move back and forward to change any verdict.
-          </p>
+          <button
+            type="button"
+            onClick={() => {
+              void clipPlayback.pause();
+              setBrowsingAfterComplete(false);
+            }}
+            className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100 dark:hover:bg-emerald-900"
+          >
+            Back to complete
+          </button>
         </div>
       ) : null}
 
