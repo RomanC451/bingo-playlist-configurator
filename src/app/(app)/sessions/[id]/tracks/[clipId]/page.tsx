@@ -15,6 +15,7 @@ import {
   SessionTrackNavTrigger,
   type SessionTrackNavItem,
 } from "@/components/SessionTrackNav";
+import { TrackAudioUploadButton } from "@/components/TrackAudioUploadButton";
 import { TrackPageLayout } from "@/components/TrackPageLayout";
 import { Breadcrumb } from "@/components/Breadcrumb";
 import { Button, buttonClassName } from "@/components/ui/button";
@@ -30,7 +31,6 @@ import { mergeTrackEditingBy, useSessionTrackLocks } from "@/hooks/useSessionTra
 import { TrackPageSkeleton } from "@/components/page-skeletons";
 import { TutorialWelcomeBanner } from "@/components/tutorial/TutorialWelcomeBanner";
 import { ContextualTutorialTrigger } from "@/components/tutorial/ContextualTutorialTrigger";
-import { UploadedAudioRequiredNotice } from "@/components/UploadedAudioRequiredNotice";
 import { useDelayedLoading } from "@/hooks/useDelayedLoading";
 import {
   useUnsavedLeaveGuard,
@@ -151,6 +151,7 @@ function VersionHistoryItem({
   track,
   sessionId,
   clipId,
+  audioRevision,
   onLoad,
   onDelete,
   deleteLoading,
@@ -166,6 +167,7 @@ function VersionHistoryItem({
   track: TrackDetail["track"];
   sessionId: string;
   clipId: string;
+  audioRevision: string | null;
   onLoad: () => void;
   onDelete: () => void;
   deleteLoading: boolean;
@@ -294,6 +296,7 @@ function VersionHistoryItem({
             trackName={track.trackName}
             artistName={track.artistName}
             durationMs={track.durationMs}
+            audioRevision={audioRevision}
             startMs={version.startMs}
             endMs={version.endMs}
             previewKey={previewKey}
@@ -314,6 +317,7 @@ function VersionHistoryList({
   track,
   sessionId,
   clipId,
+  audioRevision,
   onLoad,
   onDelete,
   deletingVersionId,
@@ -330,6 +334,7 @@ function VersionHistoryList({
   track: TrackDetail["track"];
   sessionId: string;
   clipId: string;
+  audioRevision: string | null;
   onLoad: (version: ClipVersion) => void;
   onDelete: (versionId: string) => void;
   deletingVersionId: string | null;
@@ -349,6 +354,7 @@ function VersionHistoryList({
         track={track}
         sessionId={sessionId}
         clipId={clipId}
+        audioRevision={audioRevision}
         onLoad={() => onLoad(version)}
         onDelete={() => onDelete(version.id)}
         deleteLoading={deletingVersionId === version.id}
@@ -466,10 +472,12 @@ export default function TrackEditPage() {
   const [activePreviewKey, setActivePreviewKey] = useState<string | null>("editor");
   const [showAllVersions, setShowAllVersions] = useState(false);
   const [tracksSheetOpen, setTracksSheetOpen] = useState(false);
+  const audioRevision = detail?.track.uploadedAudio?.uploadedAt ?? null;
   const clipPlayback = useClipPlayback({
     clipId: detail?.track.id ?? clipId,
     hasUploadedAudio: detail?.track.hasUploadedAudio ?? false,
     sessionId,
+    audioRevision,
   });
   const playback = useSimulatedPlaybackProgress(clipPlayback.playback);
   const setPlayback = clipPlayback.setPlayback;
@@ -774,6 +782,20 @@ export default function TrackEditPage() {
     [clipId, fetchSessionTracks, sessionId],
   );
 
+  const refreshAfterAudioUpload = useCallback(async () => {
+    const [{ res, data }, tracks] = await Promise.all([
+      fetchDetail(),
+      fetchSessionTracks(),
+    ]);
+    if (!res.ok) {
+      errorToast(data.error ?? "Failed to refresh track after upload");
+      return;
+    }
+    setDetail(data);
+    setSessionTracks(tracks);
+    setActivePreviewKey("editor");
+  }, [fetchDetail, fetchSessionTracks]);
+
   const requestNavigation = useCallback(
     (href: string) => {
       if (!isDirty) {
@@ -993,7 +1015,20 @@ export default function TrackEditPage() {
 
           {!detail.track.hasUploadedAudio ? (
             <div className="mt-4">
-              <UploadedAudioRequiredNotice sessionId={sessionId} />
+              <div
+                data-tutorial="uploaded-audio-notice"
+                className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+              >
+                Upload an MP3 for this track to preview and edit the clip. Use{" "}
+                <span className="font-medium">Upload audio</span> below, or bulk-upload from the{" "}
+                <a
+                  href={`/sessions/${sessionId}/edit?uploadAudio=1`}
+                  className="font-medium underline"
+                >
+                  session edit page
+                </a>
+                .
+              </div>
             </div>
           ) : null}
 
@@ -1010,6 +1045,13 @@ export default function TrackEditPage() {
                   {hasSavedVersion ? "Clip editor" : "Default clip"}
                 </h2>
                 <div className="flex items-center gap-2">
+                  <TrackAudioUploadButton
+                    sessionId={sessionId}
+                    clipId={clipId}
+                    hasUploadedAudio={detail.track.hasUploadedAudio}
+                    disabled={saveLoading}
+                    onUploaded={refreshAfterAudioUpload}
+                  />
                   {isDirty && (
                     <Button
                       type="button"
@@ -1044,6 +1086,7 @@ export default function TrackEditPage() {
                 artistName={track.artistName}
                 albumArtUrl={track.albumArtUrl}
                 durationMs={track.durationMs}
+                audioRevision={audioRevision}
                 startMs={draftStartMs}
                 endMs={draftEndMs}
                 onDraftChange={(startMs, endMs) => {
@@ -1154,6 +1197,7 @@ export default function TrackEditPage() {
                   track={track}
                   sessionId={sessionId}
                   clipId={clipId}
+                  audioRevision={audioRevision}
                   onLoad={loadVersionIntoEditor}
                   onDelete={(versionId) => void deleteVersion(versionId)}
                   deletingVersionId={deletingVersionId}

@@ -34,12 +34,15 @@ type HtmlAudioPlayerOptions = {
   getStreamUrl: (clipId: string) => string;
   getStreamHeaders?: () => HeadersInit | undefined;
   enabled?: boolean;
+  /** When this changes (e.g. after reupload), drop the cached audio element source. */
+  audioRevision?: string | null;
 };
 
 export function useHtmlAudioPlayer({
   getStreamUrl,
   getStreamHeaders,
   enabled = true,
+  audioRevision = null,
 }: HtmlAudioPlayerOptions) {
   const [playback, setPlayback] = useState<ClipPlaybackState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +63,35 @@ export function useHtmlAudioPlayer({
 
   getStreamUrlRef.current = getStreamUrl;
   getStreamHeadersRef.current = getStreamHeaders;
+
+  const previousAudioRevisionRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const previous = previousAudioRevisionRef.current;
+    previousAudioRevisionRef.current = audioRevision;
+    if (previous === undefined || previous === audioRevision) {
+      return;
+    }
+
+    playbackGeneration.current += 1;
+    loadedClipIdRef.current = null;
+    activeLoadRef.current = null;
+    lastPlayContextRef.current = null;
+    activeClipIdRef.current = null;
+    clipBoundsRef.current = null;
+    clipEndPauseRequested.current = true;
+
+    const audio = sharedAudio;
+    if (audio) {
+      audio.pause();
+      if (audio.src.startsWith("blob:")) {
+        URL.revokeObjectURL(audio.src);
+      }
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    setPlayback(null);
+    setError(null);
+  }, [audioRevision]);
 
   useEffect(() => {
     if (!enabled) {

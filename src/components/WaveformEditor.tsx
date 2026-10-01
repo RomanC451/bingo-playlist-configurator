@@ -49,6 +49,8 @@ interface WaveformEditorProps {
   onPlaybackChange?: React.Dispatch<React.SetStateAction<PlaybackState | null>>;
   /** Hide built-in play/pause/restart controls (e.g. when rendered in a parent header). */
   hidePlaybackControls?: boolean;
+  /** Bump when uploaded audio changes so waveform peaks reload. */
+  audioRevision?: string | null;
   /** Rendered inside the card below the waveform, separated by a border. */
   footer?: ReactNode;
 }
@@ -225,6 +227,7 @@ export function WaveformEditor({
   playback: sharedPlayback,
   onPlaybackChange,
   hidePlaybackControls = false,
+  audioRevision = null,
   footer,
 }: WaveformEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -275,6 +278,9 @@ export function WaveformEditor({
           artistName,
           sessionId,
         });
+        if (audioRevision) {
+          params.set("v", audioRevision);
+        }
         const res = await fetch(`/api/waveform/${trackId}?${params}`);
         const data = await readJsonResponse<{
           peaks?: number[];
@@ -287,7 +293,7 @@ export function WaveformEditor({
         setLoading(false);
       }
     },
-    [trackId, durationMs, trackName, artistName, sessionId],
+    [trackId, durationMs, trackName, artistName, sessionId, audioRevision],
   );
 
   useEffect(() => {

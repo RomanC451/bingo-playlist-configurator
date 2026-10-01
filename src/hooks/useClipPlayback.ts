@@ -10,6 +10,8 @@ export type ClipPlaybackOptions = {
   sessionId?: string;
   shareToken?: string | null;
   guestId?: string | null;
+  /** Cache-bust stream URL / player when uploaded audio is replaced. */
+  audioRevision?: string | null;
 };
 
 export function useClipPlayback({
@@ -18,25 +20,31 @@ export function useClipPlayback({
   sessionId,
   shareToken,
   guestId,
+  audioRevision = null,
 }: ClipPlaybackOptions) {
   const useUploadedAudio = hasUploadedAudio && Boolean(clipId);
 
   const getStreamUrl = useCallback(
     (targetClipId: string) => {
+      let base: string;
       if (shareToken) {
-        return publicGuessAudioStreamPath(shareToken, targetClipId, guestId);
+        base = publicGuessAudioStreamPath(shareToken, targetClipId, guestId);
+      } else if (sessionId) {
+        base = sessionTrackAudioStreamPath(sessionId, targetClipId);
+      } else {
+        throw new Error("Missing stream context");
       }
-      if (sessionId) {
-        return sessionTrackAudioStreamPath(sessionId, targetClipId);
-      }
-      throw new Error("Missing stream context");
+      if (!audioRevision) return base;
+      const separator = base.includes("?") ? "&" : "?";
+      return `${base}${separator}v=${encodeURIComponent(audioRevision)}`;
     },
-    [guestId, sessionId, shareToken],
+    [audioRevision, guestId, sessionId, shareToken],
   );
 
   const htmlPlayer = useHtmlAudioPlayer({
     getStreamUrl,
     enabled: useUploadedAudio,
+    audioRevision,
   });
 
   const playClip = useCallback(
